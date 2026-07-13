@@ -9,7 +9,7 @@
           content="#F28C28">
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="config.js"></script>
+    <script src="config.js?v=20260714-2"></script>
     <script src="toast.js"></script>
     <script src="auth.js"></script>
     <style>
@@ -376,6 +376,19 @@
         <div id="help-content" class="space-y-4 text-sm text-gray-700 leading-relaxed overflow-y-auto overscroll-contain px-5 py-4 flex-1 min-h-0"></div>
         <div class="shrink-0 border-t border-gray-100 bg-white p-4">
             <button onclick="closeHelpModal()" class="w-full py-3 bg-gray-100 text-gray-600 rounded-xl font-bold text-sm">닫기</button>
+        </div>
+    </div>
+</div>
+
+
+<div id="app-update-modal" class="fixed inset-0 hidden items-center justify-center z-[30000] bg-black/60 p-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-xs p-6 text-center">
+        <div class="w-12 h-12 mx-auto mb-4 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center text-2xl">↻</div>
+        <h3 class="text-lg font-black text-gray-900 mb-2">새 버전이 있습니다</h3>
+        <p class="text-sm text-gray-500 leading-relaxed mb-6">지금 업데이트하면 최신 기능과 수정사항이 적용됩니다.</p>
+        <div class="flex gap-2">
+            <button type="button" onclick="closeAppUpdateModal()" class="flex-1 py-2.5 bg-gray-100 text-gray-600 rounded-xl font-bold text-sm">나중에</button>
+            <button id="app-update-button" type="button" onclick="applyAppUpdate()" class="flex-1 py-2.5 bg-emerald-600 text-white rounded-xl font-bold text-sm">업데이트</button>
         </div>
     </div>
 </div>
@@ -1339,6 +1352,7 @@ function showDateFilterModal(sourceElement = null) {
 
 
 const ADMIN_NOTIFICATION_UI_KEY = 'adminNotificationUiEnabled';
+const ADMIN_VAPID_PUBLIC_KEY = 'BJx5yvicJ2S74u5xdJ-Mb4_vVY7uEDaoJRDuPRskLk1vuZ5Cdetl5Jqtsd4m5jfdf1i8YPq-9vjC8RYpQtZumEo';
 
 function urlBase64ToUint8Array(base64String){
     const padding = '='.repeat((4 - base64String.length % 4) % 4);
@@ -1506,8 +1520,13 @@ async function enableAdminNotifications(){
         throw new Error('이 브라우저에서는 푸시 알림을 지원하지 않습니다.');
     }
 
-    if(typeof VAPID_PUBLIC_KEY === 'undefined' || !VAPID_PUBLIC_KEY){
-        throw new Error('VAPID 공개키가 설정되지 않았습니다.');
+    const vapidPublicKey =
+        (typeof VAPID_PUBLIC_KEY !== 'undefined' && VAPID_PUBLIC_KEY)
+            ? VAPID_PUBLIC_KEY
+            : ADMIN_VAPID_PUBLIC_KEY;
+
+    if(!vapidPublicKey){
+        throw new Error('알림 설정 정보를 불러오지 못했습니다.');
     }
 
     let permission = Notification.permission;
@@ -1529,7 +1548,7 @@ async function enableAdminNotifications(){
 
     const subscription = existingSubscription || await registration.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+        applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
     });
 
     await savePushSubscription(subscription, true);
@@ -2643,24 +2662,112 @@ async function handleLogout(){
 
     </script>
 
-    <script>
-    if ("serviceWorker" in navigator) {
-        window.addEventListener("load", async () => {
-            const registration = await navigator.serviceWorker.register("./service-worker.js");
-            console.log("Service Worker 등록 완료");
-            registration.addEventListener("updatefound", () => {
-                const newWorker = registration.installing;
-                newWorker.addEventListener("statechange", () => {
-                    if (newWorker.state === "installed" && navigator.serviceWorker.controller) {
-                        if (triggerToast("새 버전이 있습니다.\n지금 업데이트하시겠습니까?")) {
-                            window.location.reload();
-                        }
-                    }
-                });
+<script>
+let pendingAppUpdateRegistration = null;
+let isApplyingAppUpdate = false;
+
+function showAppUpdateModal(registration){
+    pendingAppUpdateRegistration = registration || pendingAppUpdateRegistration;
+    const modal = document.getElementById('app-update-modal');
+    if(!modal || isApplyingAppUpdate) return;
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+function closeAppUpdateModal(){
+    const modal = document.getElementById('app-update-modal');
+    if(!modal) return;
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+}
+
+async function applyAppUpdate(){
+    if(isApplyingAppUpdate) return;
+    isApplyingAppUpdate = true;
+
+    const button = document.getElementById('app-update-button');
+    if(button){
+        button.disabled = true;
+        button.textContent = '업데이트 중...';
+        button.classList.add('opacity-60');
+    }
+
+    try{
+        const registration = pendingAppUpdateRegistration;
+
+        if(registration?.waiting){
+            registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+        }
+
+        if('caches' in window){
+            const cacheNames = await caches.keys();
+            await Promise.all(cacheNames.map(name => caches.delete(name)));
+        }
+
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(registrations.map(item => item.unregister()));
+
+        const reloadUrl = new URL(location.href);
+        reloadUrl.searchParams.set('_updated', Date.now().toString());
+        location.replace(reloadUrl.toString());
+    }catch(error){
+        console.error('앱 업데이트 실패:', error);
+        isApplyingAppUpdate = false;
+
+        if(button){
+            button.disabled = false;
+            button.textContent = '다시 시도';
+            button.classList.remove('opacity-60');
+        }
+    }
+}
+
+async function registerAppServiceWorker(){
+    if(
+        !('serviceWorker' in navigator) ||
+        !(
+            location.protocol === 'https:' ||
+            location.hostname === 'localhost' ||
+            location.hostname === '127.0.0.1'
+        )
+    ){
+        return;
+    }
+
+    try{
+        const registration = await navigator.serviceWorker.register(
+            './service-worker.js',
+            { updateViaCache: 'none' }
+        );
+
+        console.log('Service Worker 등록 완료');
+
+        if(registration.waiting && navigator.serviceWorker.controller){
+            showAppUpdateModal(registration);
+        }
+
+        registration.addEventListener('updatefound', () => {
+            const newWorker = registration.installing;
+            if(!newWorker) return;
+
+            newWorker.addEventListener('statechange', () => {
+                if(
+                    newWorker.state === 'installed' &&
+                    navigator.serviceWorker.controller
+                ){
+                    showAppUpdateModal(registration);
+                }
             });
         });
+
+        await registration.update();
+    }catch(error){
+        console.warn('Service Worker 등록 실패:', error);
     }
-    </script>
+}
+
+window.addEventListener('load', registerAppServiceWorker);
+</script>
 
 </body>
 </html>
