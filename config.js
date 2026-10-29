@@ -9,4 +9,4 @@ const sb = window.supabase.createClient(
 );
 
 const VAPID_PUBLIC_KEY =
-"BNXpcTusmd5gU2TpgjnzrFLwZOrNG0-gkn08cKQePwM2xtq8mazfLn-AiqLO7b1maFYV65pyrcuGOAyXHb0D7Iw";
+"BLPDIl-eIo6-ppl-kpKp0a3hNTUkL_l89NmMFVGluX7KhfQUAC9xcoxIVLt1txRFbIPRNFXKdZXIBxgWVNlgS6w";
