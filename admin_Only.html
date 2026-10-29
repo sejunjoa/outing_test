@@ -1,0 +1,2762 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>관리자</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#F28C28">
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="toast.js"></script>
+<script src="auth.js"></script>
+<style>
+*{box-sizing:border-box;font-family:'Pretendard','Noto Sans KR',sans-serif;}
+.rate-cell{min-height:74px;border-top:1px solid #f1f5f9;position:relative;padding:4px;border-radius:0;overflow:hidden;}
+.rate-value{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:18px;}
+.rate-summary-popover{position:fixed;z-index:12000;width:154px;padding:10px 12px;background:rgba(255,255,255,.98);border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 12px 30px rgba(15,23,42,.18);font-size:12px;line-height:1.2;backdrop-filter:blur(8px);}
+.rate-summary-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:4px 0;font-weight:800;color:#374151;}
+.rate-summary-mark{display:inline-block;width:10px;height:10px;border-radius:3px;flex:none;}
+.tab-active{background:#F28C28;color:white;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.card{background:white;border:1px solid #f1f5f9;border-radius:16px;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+.color-weekday { background-color:#3b82f6!important; }
+.color-weekend { background-color:#1e3a8a!important; }
+.color-overnight { background-color:#10b981!important; }
+.color-vacation { background-color:#ef4444!important; }
+
+/* schedule_user / schedule_admin 달력과 동일한 출타 밑줄(Bar) 렌더링 */
+.schedule-bar {
+    height: 14px;
+    font-size: 10px;
+    color: white !important;
+    font-weight: 800;
+    text-align: center;
+    line-height: 14px;
+    overflow: hidden;
+    white-space: nowrap;
+    position: relative;
+}
+
+.bar-single { border-radius: 4px; margin-left: 2px; margin-right: 2px; }
+.bar-start { border-top-left-radius: 4px; border-bottom-left-radius: 4px; margin-left: 2px; margin-right: -4px; }
+.bar-mid { border-radius: 0; margin-left: -4px; margin-right: -4px; }
+.bar-end { border-top-right-radius: 4px; border-bottom-right-radius: 4px; margin-left: -4px; margin-right: 2px; }
+
+        /* 개인정보 수정 팝업보다 토스트가 위에 보이도록 보정 */
+        #custom-toast{
+            z-index:20000!important;
+        }
+
+        /* 페이지 진입 애니메이션 */
+        #page-status{
+            opacity:0;
+            transform:translateY(22px) scale(.985);
+            filter:blur(7px);
+            will-change:transform,opacity,filter;
+        }
+        #page-status.page-enter-ready{
+            animation:pageEnterReady 560ms cubic-bezier(.22,1,.36,1) forwards;
+        }
+        @keyframes pageEnterReady{
+            0%{
+                opacity:0;
+                transform:translateY(22px) scale(.985);
+                filter:blur(7px);
+            }
+            100%{
+                opacity:1;
+                transform:translateY(0) scale(1);
+                filter:blur(0);
+            }
+        }
+        @media (prefers-reduced-motion:reduce){
+            #page-status.page-enter-ready{
+                animation-duration:1ms!important;
+            }
+        }
+
+
+/* 새 패치노트 알림: 설정 및 패치노트 확인 버튼 우측 상단 */
+.patchnote-unread-dot{position:relative!important;overflow:visible!important;}
+.patchnote-unread-dot::after{content:"";position:absolute;top:-4px;right:-4px;width:9px;height:9px;background:#ef2929;border:2px solid #fff;border-radius:50%;box-sizing:content-box;pointer-events:none;z-index:5;box-shadow:0 0 0 1px rgba(220,38,38,.12);}
+
+</style>
+</head>
+<body class="bg-gray-50 text-gray-900 font-sans antialiased relative">
+
+<div id="page-status" class="max-w-md mx-auto min-h-screen flex flex-col">
+    <div class="sticky top-0 z-20 bg-gray-50 shadow-sm border-b border-gray-200">
+        <header class="bg-white px-4 py-3 flex items-center">
+            <div class="w-24 flex justify-start">
+                <button onclick="openSettingsModal(this)" class="h-[30px] px-3 bg-gray-100 text-gray-700 rounded-xl text-xs font-bold active:scale-95 transition-all shadow-xs flex items-center justify-center whitespace-nowrap" aria-label="설정">설정 ⚙️</button>
+            </div>
+            <h2 id="page-title" class="flex-1 text-center text-lg font-bold tracking-tight truncate">관리자</h2>
+            <div class="w-24 flex justify-end">
+                <button onclick="navigateToScheduleAdmin()" class="h-[30px] px-3 bg-[#F28C28] text-white font-bold rounded-xl text-xs active:scale-95 transition-all shadow-xs flex items-center justify-center whitespace-nowrap">출타 탭</button>
+            </div>
+        </header>
+
+        <div class="bg-white p-3">
+            <div class="max-w-md mx-auto">
+                <nav class="grid grid-cols-5 gap-1 w-full mb-3">
+                    <button id="btn-tab-rate-calendar" onclick="switchAdminTabFromButton('rate-calendar', this)" class="py-2 rounded-xl font-bold text-[11px] tab-active min-w-0 whitespace-nowrap">출타율 달력</button>
+                    <button id="btn-tab-rate-detail" onclick="switchAdminTabFromButton('rate-detail', this)" class="py-2 rounded-xl font-bold text-[11px] bg-gray-100 text-gray-600 min-w-0 whitespace-nowrap">출타율 상세</button>
+                    <button id="btn-tab-members" onclick="switchAdminTabFromButton('members', this)" class="py-2 rounded-xl font-bold text-[11px] bg-gray-100 text-gray-600 min-w-0 whitespace-nowrap">부대원 관리</button>
+                    <button id="btn-tab-unit" onclick="switchAdminTabFromButton('unit', this)" class="py-2 rounded-xl font-bold text-[11px] bg-gray-100 text-gray-600 min-w-0 whitespace-nowrap">부대 수정</button>
+                    <button id="btn-tab-other-unit" onclick="switchAdminTabFromButton('other-unit', this)" class="py-2 rounded-xl font-bold text-[11px] bg-gray-100 text-gray-600 min-w-0 whitespace-nowrap">타부대 조회</button>
+                </nav>
+
+                <div id="rate-mode-filter" class="flex flex-wrap gap-x-2 gap-y-2 text-xs font-bold text-gray-500 px-1">
+                    <button id="btn-rate-all" onclick="setRateMode('all')" class="bg-[#F28C28] text-white px-3 py-1 rounded-lg border border-[#F28C28] transition-all">전체</button>
+                    <button id="btn-rate-vacation" onclick="setRateMode('vacation')" class="bg-orange-50 text-[#F28C28] px-3 py-1 rounded-lg border border-orange-200 transition-all">휴가만</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <main class="max-w-md mx-auto w-full flex-1">
+        <div class="p-3">
+            <section id="view-rate-calendar">
+                <div class="flex justify-between items-center px-4 py-2">
+                    <button onclick="changeMonth(-1)" class="w-10 h-10 flex items-center justify-center font-bold text-gray-600 hover:bg-gray-100 rounded-full transition-all">&lt;</button>
+                    <div id="calendar-title" class="font-bold text-lg"></div>
+                    <button onclick="changeMonth(1)" class="w-10 h-10 flex items-center justify-center font-bold text-gray-600 hover:bg-gray-100 rounded-full transition-all">&gt;</button>
+                </div>
+                <div class="bg-white rounded-2xl p-3 shadow-xs border border-gray-200 overflow-hidden">
+                    <div id="rate-calendar-grid" class="grid grid-cols-7 gap-y-2 text-sm"></div>
+                </div>
+                <p class="text-[11px] text-gray-400 text-center mt-3">숫자는 해당일 출타율(%)입니다.</p>
+            </section>
+
+            <section id="view-rate-detail" class="hidden">
+                <div class="flex justify-between items-center px-4 py-2">
+                    <button onclick="changeDetailMonth(-1)" class="w-10 h-10 flex items-center justify-center font-bold text-gray-600 hover:bg-gray-100 rounded-full transition-all">&lt;</button>
+                    <div id="detail-title" class="font-bold text-lg"></div>
+                    <button onclick="changeDetailMonth(1)" class="w-10 h-10 flex items-center justify-center font-bold text-gray-600 hover:bg-gray-100 rounded-full transition-all">&gt;</button>
+                </div>
+                <div id="rate-detail-list" class="space-y-2"></div>
+            </section>
+
+            <section id="view-members" class="hidden space-y-6">
+                <div>
+                    <h3 class="font-extrabold text-[#F28C28] text-sm mb-2">&lt;가입 희망자&gt;</h3>
+                    <div id="pending-list" class="space-y-2"></div>
+                </div>
+                <div>
+                    <h3 class="font-extrabold text-emerald-700 text-sm mb-2">&lt;부대이동 신청자&gt;</h3>
+                    <div id="unit-transfer-list" class="space-y-2"></div>
+                </div>
+                <div>
+                    <h3 id="admin-count-title" class="font-extrabold text-gray-700 text-sm mb-2">&lt;관리자(0)&gt;</h3>
+                    <div id="admin-list" class="space-y-2"></div>
+                </div>
+                <div>
+                    <h3 id="member-count-title" class="font-extrabold text-gray-700 text-sm mb-2">&lt;부대원(0)&gt;</h3>
+                    <div id="member-list" class="space-y-2"></div>
+                </div>
+            </section>
+
+            <section id="view-unit" class="hidden space-y-5">
+                <div class="card p-4">
+                    <h3 class="font-bold text-sm mb-2 text-[#F28C28]">부대 가입하기</h3>
+                    <p class="text-xs text-gray-500 leading-relaxed mb-3">부대명 또는 부대코드로 검색한 뒤 가입할 수 있습니다.</p>
+                    <input id="join-unit-search" oninput="handleJoinUnitSearchInput()" type="text" placeholder="부대명 또는 부대코드 검색" class="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm focus:outline-hidden focus:border-[#F28C28]">
+                    <div id="join-unit-result" class="mt-3 space-y-2"></div>
+                
+                    <div class="mt-4 pt-4 border-t border-gray-100">
+<button onclick="toggleCreateUnitBox(this)" class="w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-orange-50 active:scale-95 transition-all">
+                        <span class="w-8 h-8 rounded-full bg-[#F28C28] text-white flex items-center justify-center text-2xl font-black leading-none">+</span>
+                        <span class="font-black text-[#F28C28]">부대 생성하기</span>
+                    </button>
+                    <div id="create-unit-box" class="hidden mt-4 space-y-2">
+                        <input id="new-unit-name" oninput="checkUnitNameExists()" type="text" placeholder="생성할 부대명" class="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm focus:outline-hidden focus:border-[#F28C28]">
+                        <p id="unit-exists-msg" class="text-xs min-h-[16px]"></p>
+                        <button onclick="createUnit()" class="w-full py-2.5 bg-[#F28C28] text-white rounded-xl font-bold text-sm">부대 생성</button>
+                    </div>
+                    </div>
+                </div>
+
+                <div id="current-unit-info" class="card p-4 text-sm text-gray-600"></div>
+
+
+                <div class="card p-4">
+                    <h3 class="font-bold text-sm mb-3">부대명 수정</h3>
+                    <input id="edit-unit-name" type="text" placeholder="현재 소속 부대가 없습니다." class="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm focus:outline-hidden focus:border-[#F28C28]">
+                    <button onclick="updateUnitName()" class="w-full mt-3 py-2.5 bg-[#F28C28] text-white rounded-xl font-bold text-sm">부대명 저장</button>
+                </div>
+
+                <div class="card p-4">
+                    <h3 class="font-bold text-sm mb-2 text-red-600">부대 삭제 신청</h3>
+                    <p class="text-xs text-gray-500 leading-relaxed mb-3">삭제 신청 후 개발자가 확인하여 직접 삭제합니다.</p>
+                    <button onclick="requestUnitDelete(this)" class="w-full py-2.5 bg-red-50 text-red-600 rounded-xl font-bold text-sm">삭제 신청</button>
+                </div>
+            </section>
+
+            <section id="view-other-unit" class="hidden space-y-5">
+                <div class="card p-4">
+                    <h3 class="font-bold text-sm mb-2 text-[#F28C28]">타부대 출타 조회</h3>
+                    <p class="text-xs text-gray-500 leading-relaxed mb-3">부대명 또는 부대코드로 검색해 다른 부대의 출타 현황을 조회합니다.</p>
+                    <input id="other-unit-search" onfocus="openOtherUnitResults(this)" onblur="handleOtherUnitSearchBlur()" oninput="handleOtherUnitSearchInput()" type="text" placeholder="부대명 또는 부대코드 검색" class="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm focus:outline-hidden focus:border-[#F28C28]">
+                    <div id="favorite-other-unit-wrap" class="mt-3">
+                        <p class="text-xs font-bold text-gray-500 mb-2">즐겨찾기한 부대</p>
+                        <div id="favorite-other-unit-list" class="space-y-2"></div>
+                    </div>
+                    <div id="other-unit-search-result-title" class="hidden mt-4 mb-2 text-xs font-bold text-gray-500">검색 결과</div>
+                    <div id="other-unit-list" class="space-y-2 hidden overflow-visible"></div>
+                </div>
+
+                <div id="other-unit-view-box" class="hidden">
+                    <div class="card p-4 mb-3">
+                        <p class="text-xs text-gray-500 mb-1">조회 중인 부대</p>
+                        <p id="other-unit-title" class="font-black text-gray-900"></p>
+                        <p class="text-[11px] text-red-500 mt-2 font-bold">조회 전용 화면입니다. 타부대 출타는 수정하거나 삭제할 수 없습니다.</p>
+                    </div>
+
+                    <nav class="flex gap-1 w-full mb-3">
+                        <button id="btn-other-calendar" onclick="switchOtherView('calendar', this)" class="py-2 rounded-xl font-bold text-xs bg-[#F28C28] text-white shadow-xs flex-1">달력</button>
+                        <button id="btn-other-list" onclick="switchOtherView('list', this)" class="py-2 rounded-xl font-bold text-xs bg-gray-100 text-gray-600 flex-1">상세</button>
+                        <button id="btn-other-weekly" onclick="switchOtherView('weekly', this)" class="py-2 rounded-xl font-bold text-xs bg-gray-100 text-gray-600 flex-1">이번주</button>
+                        <button id="btn-other-next-weekly" onclick="switchOtherView('next-weekly', this)" class="py-2 rounded-xl font-bold text-xs bg-gray-100 text-gray-600 flex-1">다음주</button>
+                    </nav>
+
+                    <section id="other-view-calendar">
+                        <div class="flex justify-between items-center px-4 py-2">
+                            <button onclick="changeOtherMonth(-1)" class="w-10 h-10 flex items-center justify-center font-bold text-gray-600 hover:bg-gray-100 rounded-full transition-all">&lt;</button>
+                            <div id="other-calendar-title" class="font-bold text-lg"></div>
+                            <button onclick="changeOtherMonth(1)" class="w-10 h-10 flex items-center justify-center font-bold text-gray-600 hover:bg-gray-100 rounded-full transition-all">&gt;</button>
+                        </div>
+                        <div class="bg-white rounded-2xl p-3 shadow-xs border border-gray-200 overflow-hidden">
+                            <div id="other-calendar-grid" class="grid grid-cols-7 gap-y-2 text-sm"></div>
+                        </div>
+                    </section>
+                    <section id="other-view-list" class="hidden space-y-6"></section>
+                    <section id="other-view-weekly" class="hidden p-4 max-w-md mx-auto w-full"></section>
+                    <section id="other-view-next-weekly" class="hidden p-4 max-w-md mx-auto w-full"></section>
+                </div>
+            </section>
+
+        </div>
+    </main>
+</div>
+
+<div id="rate-summary-popover" class="rate-summary-popover hidden" role="dialog" aria-live="polite"></div>
+
+<div id="outing-popup" class="hidden fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 p-4">
+    <div class="bg-white rounded-2xl w-full max-w-sm p-5 shadow-xl">
+        <h3 id="outing-popup-title" class="text-lg font-bold text-center mb-4"></h3>
+        <div id="outing-popup-list" class="max-h-80 overflow-y-auto space-y-2"></div>
+        <button onclick="closeOutingPopup()" class="w-full mt-5 py-3 bg-gray-100 text-gray-600 rounded-xl font-bold text-sm">닫기</button>
+    </div>
+</div>
+
+<div id="unit-created-popup" class="hidden fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 p-4">
+    <div class="bg-white rounded-2xl w-full max-w-xs p-6 shadow-xl text-center">
+        <h3 class="text-lg font-bold mb-3">부대가 생성되었습니다!</h3>
+        <p id="created-unit-code" class="text-[#F28C28] font-black text-xl mb-5"></p>
+        <button onclick="closeUnitCreatedPopup()" class="w-full py-3 bg-[#F28C28] text-white rounded-xl font-bold text-sm">확인</button>
+    </div>
+</div>
+
+<div id="settings-modal" class="fixed inset-0 hidden flex items-center justify-center z-[9999] bg-black/50 p-4">
+    <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm max-h-[88vh] flex flex-col overflow-hidden">
+        <div class="flex justify-between items-center border-b border-gray-100 px-5 py-4 shrink-0">
+            <h3 class="text-lg font-bold text-gray-900">설정</h3>
+            <button onclick="closeSettingsModal()" class="text-gray-400 hover:text-gray-600 text-xl font-bold">&times;</button>
+        </div>
+        <div class="space-y-4 overflow-y-auto overscroll-contain px-5 py-4 flex-1 min-h-0">
+            
+                <div class="flex items-center justify-between gap-4 p-3.5 bg-orange-50 border border-orange-100 rounded-2xl">
+                    <div class="min-w-0">
+                        <p class="text-sm font-black text-gray-800">관리자 알림</p>
+                        <p id="admin-notification-status" class="mt-0.5 text-[11px] font-bold text-gray-400">알림 상태 확인 중</p>
+                    </div>
+                    <button
+                        id="admin-notification-switch"
+                        type="button"
+                        role="switch"
+                        aria-checked="false"
+                        onclick="toggleAdminNotificationSwitch()"
+                        class="relative w-12 h-7 shrink-0 rounded-full bg-gray-300 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-orange-300"
+                        aria-label="관리자 알림 켜기 또는 끄기">
+                        <span id="admin-notification-switch-knob" class="absolute top-1 left-1 w-5 h-5 rounded-full bg-white shadow-sm transition-transform duration-200"></span>
+                    </button>
+                </div>
+<div class="grid grid-cols-1 gap-2 pt-1">
+                <button onclick="openProfileEditModal(this)" class="w-full py-2.5 bg-gray-100 text-gray-700 rounded-xl font-bold text-sm active:scale-95 transition-all">개인정보 수정</button>
+                <button type="button" data-install-app onclick="installOutingApp()" class="w-full py-2.5 bg-emerald-50 text-emerald-700 rounded-xl font-bold text-sm active:scale-95 transition-all">앱 설치</button>
+                    <button onclick="openPatchNotesModal(this)" class="w-full py-2.5 bg-indigo-50 text-indigo-700 rounded-xl font-bold text-sm active:scale-95 transition-all">패치노트 확인</button>
+<button onclick="openHelpModal(this)" class="w-full py-2.5 bg-blue-50 text-blue-700 rounded-xl font-bold text-sm active:scale-95 transition-all">도움말</button>
+                <button onclick="handleLogout()" class="w-full py-2.5 bg-gray-100 text-gray-700 rounded-xl font-bold text-sm active:scale-95 transition-all">로그아웃</button>
+                <button onclick="handleDeleteAccount()" class="w-full py-2.5 bg-red-50 text-red-600 rounded-xl font-bold text-sm active:scale-95 transition-all">회원탈퇴</button>
+            </div>
+            <div class="pt-3 border-t border-gray-100 text-center text-[11px] text-gray-400 leading-relaxed">
+                개발자 문의 : 010-9541-7788 김세준
+            </div>
+        </div>
+        <div class="shrink-0 border-t border-gray-100 bg-white p-4">
+            <button onclick="closeSettingsModal()" class="w-full py-3 bg-gray-100 text-gray-600 rounded-xl font-bold text-sm">닫기</button>
+        </div>
+    </div>
+</div>
+
+<div id="profile-edit-modal" class="fixed inset-0 hidden flex items-center justify-center z-[10000] bg-black/50 p-4">
+    <div class="bg-white p-5 rounded-2xl shadow-xl w-full max-w-sm max-h-[88vh] overflow-y-auto">
+        <div class="flex justify-between items-center border-b border-gray-100 pb-3 mb-4">
+            <h3 class="text-lg font-bold text-gray-900">개인정보 수정</h3>
+            <button onclick="closeProfileEditModal()" class="text-gray-400 hover:text-gray-600 text-xl font-bold">&times;</button>
+        </div>
+        <div class="space-y-3">
+            <div>
+                <label class="block text-xs font-bold text-gray-500 mb-1">이름</label>
+                <input id="profile-edit-name" type="text" class="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm focus:outline-hidden focus:border-emerald-600">
+            </div>
+            <div id="profile-edit-position-wrap" class="hidden">
+                <label class="block text-xs font-bold text-gray-500 mb-1">직책</label>
+                <input id="profile-edit-position" type="text" class="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm focus:outline-hidden focus:border-emerald-600">
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-gray-500 mb-1">휴대폰번호</label>
+                <input id="profile-edit-phone" type="tel" class="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm focus:outline-hidden focus:border-emerald-600" placeholder="01012345678">
+            </div>
+            <div class="pt-2 border-t border-gray-100">
+                <label class="block text-xs font-bold text-red-500 mb-1">현재 비밀번호 입력</label>
+                <input id="profile-edit-password" type="password" class="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm focus:outline-hidden focus:border-red-400" placeholder="">
+            </div>
+            <button onclick="saveProfileEdit()" class="w-full py-3 bg-emerald-600 text-white rounded-xl font-bold text-sm active:scale-95 transition-all">수정 저장</button>
+            <button onclick="closeProfileEditModal()" class="w-full py-3 bg-gray-100 text-gray-600 rounded-xl font-bold text-sm">취소</button>
+        </div>
+    </div>
+</div>
+
+<div id="help-modal" class="fixed inset-0 hidden flex items-center justify-center z-[10000] bg-black/50 p-4">
+    <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm max-h-[88vh] flex flex-col overflow-hidden">
+        <div class="flex justify-between items-center border-b border-gray-100 px-5 py-4 shrink-0">
+            <h3 class="text-lg font-bold text-gray-900">도움말</h3>
+            <button onclick="closeHelpModal()" class="text-gray-400 hover:text-gray-600 text-xl font-bold">&times;</button>
+        </div>
+        <div id="help-content" class="space-y-4 text-sm text-gray-700 leading-relaxed overflow-y-auto overscroll-contain px-5 py-4 flex-1 min-h-0"></div>
+        <div class="shrink-0 border-t border-gray-100 bg-white p-4">
+            <button onclick="closeHelpModal()" class="w-full py-3 bg-gray-100 text-gray-600 rounded-xl font-bold text-sm">닫기</button>
+        </div>
+    </div>
+</div>
+
+<script>
+
+function initRateSummaryOutsideClose(){
+    const popover=document.getElementById('rate-summary-popover');
+    if(!popover || popover.dataset.outsideCloseReady) return;
+    popover.dataset.outsideCloseReady='1';
+
+    const closeFirst=event=>{
+        if(popover.classList.contains('hidden')) return;
+        if(event.target.closest('.sticky.top-0')) return;
+        if(event.target.closest('#rate-summary-popover')) return;
+
+        closeRateSummary();
+        event.stopPropagation();
+    };
+
+    document.addEventListener('touchstart',closeFirst,{capture:true,passive:true});
+    document.addEventListener('mousedown',closeFirst,true);
+}
+
+
+function hasOpenBlockingOverlay(){
+    if(document.getElementById('custom-confirm-toast')) return true;
+
+    const selectors=[
+        '#settings-modal',
+        '#profile-edit-modal',
+        '#help-modal',
+        '#register-modal',
+        '#date-filter-modal',
+        '#confirm-modal',
+        '#past-outing-modal',
+        '#outing-popup',
+        '#unit-created-popup',
+        '#unit-transfer-modal'
+    ];
+
+    return selectors.some(selector=>{
+        const element=document.querySelector(selector);
+        return element && !element.classList.contains('hidden');
+    });
+}
+
+
+        function playPageEnterAnimation(){
+            const page=document.getElementById('page-status');
+            if(!page) return;
+            requestAnimationFrame(()=>{
+                requestAnimationFrame(()=>{
+                    page.classList.add('page-enter-ready');
+                });
+            });
+        }
+
+        window.addEventListener('DOMContentLoaded',playPageEnterAnimation);
+
+
+function animatePopupFromSource(modal, sourceElement){
+    if(!modal) return;
+    const panel=modal.firstElementChild;
+    modal.classList.remove('hidden');
+    modal.getAnimations().forEach(a=>a.cancel());
+    panel?.getAnimations().forEach(a=>a.cancel());
+    modal.animate([{backgroundColor:'rgb(0 0 0 / 0%)'},{backgroundColor:'rgb(0 0 0 / 50%)'}],{duration:220,easing:'ease-out',fill:'both'});
+    if(!panel || !sourceElement) return;
+    const sourceRect=sourceElement.getBoundingClientRect();
+    requestAnimationFrame(()=>{
+        const panelRect=panel.getBoundingClientRect();
+        const tx=sourceRect.left+sourceRect.width/2-(panelRect.left+panelRect.width/2);
+        const ty=sourceRect.top+sourceRect.height/2-(panelRect.top+panelRect.height/2);
+        const sx=Math.max(.08,Math.min(.34,sourceRect.width/panelRect.width));
+        const sy=Math.max(.08,Math.min(.26,sourceRect.height/panelRect.height));
+        panel.animate([
+            {transform:`translate(${tx}px,${ty}px) scale(${sx},${sy})`,opacity:.1},
+            {transform:'translate(0,0) scale(1,1)',opacity:1}
+        ],{duration:330,easing:'cubic-bezier(.22,1,.36,1)',fill:'both'});
+    });
+}
+function closePopupDown(modal, afterClose){
+    if(!modal || modal.classList.contains('hidden')){afterClose?.();return;}
+    const panel=modal.firstElementChild;
+    modal.getAnimations().forEach(a=>a.cancel());
+    panel?.getAnimations().forEach(a=>a.cancel());
+    const anim=panel?.animate([{transform:'translateY(0)',opacity:1},{transform:'translateY(72px)',opacity:0}],{duration:230,easing:'cubic-bezier(.4,0,1,1)',fill:'both'});
+    modal.animate([{backgroundColor:'rgb(0 0 0 / 50%)'},{backgroundColor:'rgb(0 0 0 / 0%)'}],{duration:230,easing:'ease-in',fill:'both'});
+    const finish=()=>{modal.classList.add('hidden');modal.getAnimations().forEach(a=>a.cancel());panel?.getAnimations().forEach(a=>a.cancel());afterClose?.();};
+    if(anim) anim.finished.then(finish).catch(finish); else setTimeout(finish,230);
+}
+function navigateToScheduleAdmin(){
+    const page=document.getElementById('page-status');
+    if(!page){location.href='schedule_admin.html';return;}
+    page.animate([
+        {transform:'translateX(0) scale(1)',opacity:1,filter:'blur(0)'},
+        {transform:'translateX(36px) scale(.98)',opacity:0,filter:'blur(5px)'}
+    ],{duration:360,easing:'cubic-bezier(.4,0,.2,1)',fill:'forwards'});
+    setTimeout(()=>location.href='schedule_admin.html',340);
+}
+const ADMIN_TAB_ORDER=['rate-calendar','rate-detail','members','unit','other-unit'];
+let adminTabAnimating=false;
+function getActiveAdminTab(){
+    const section=ADMIN_TAB_ORDER.map(x=>document.getElementById(`view-${x}`)).find(el=>el&&!el.classList.contains('hidden'));
+    return section?section.id.replace('view-',''):'rate-calendar';
+}
+function renderAdminTab(type){
+    if(type==='rate-calendar') renderRateCalendar();
+    if(type==='rate-detail') renderRateDetail();
+    if(type==='members') renderMembers();
+    if(type==='unit') renderUnitTab();
+    if(type==='other-unit'){
+        renderFavoriteOtherUnits();
+        if(selectedOtherUnit) switchOtherView(otherView);
+    }
+}
+function updateAdminTabButtons(type){
+    ADMIN_TAB_ORDER.forEach(tab=>{
+        const btn=document.getElementById(`btn-tab-${tab}`);
+        if(btn) btn.className='py-2 rounded-xl font-bold text-[11px] bg-gray-100 text-gray-600 min-w-0 whitespace-nowrap';
+    });
+    const active=document.getElementById(`btn-tab-${type}`);
+    if(active) active.className='py-2 rounded-xl font-bold text-[11px] tab-active min-w-0 whitespace-nowrap';
+    document.getElementById('rate-mode-filter')?.classList.toggle('hidden',type!=='rate-calendar');
+}
+function switchAdminTabFromButton(type, sourceElement){
+    const from=getActiveAdminTab();
+    if(from===type || adminTabAnimating) return;
+    const fi=ADMIN_TAB_ORDER.indexOf(from), ti=ADMIN_TAB_ORDER.indexOf(type);
+    const forward=(ti-fi+ADMIN_TAB_ORDER.length)%ADMIN_TAB_ORDER.length;
+    const backward=(fi-ti+ADMIN_TAB_ORDER.length)%ADMIN_TAB_ORDER.length;
+    animateAdminTab(type, forward<=backward?1:-1);
+}
+function animateAdminTab(type,direction){
+    const current=document.getElementById(`view-${getActiveAdminTab()}`);
+    const target=document.getElementById(`view-${type}`);
+    if(!current||!target||current===target)return;
+    renderAdminTab(type);
+    const wrap=current.parentElement, cr=current.getBoundingClientRect(), wr=wrap.getBoundingClientRect(), width=Math.max(cr.width,1), gap=12;
+    const prevPos=wrap.style.position, prevOverflow=wrap.style.overflow;
+    if(getComputedStyle(wrap).position==='static')wrap.style.position='relative';
+    wrap.style.overflow='hidden';
+    current.style.position='relative';current.style.zIndex='5';current.style.pointerEvents='none';current.style.willChange='transform';current.style.transform='translate3d(0,0,0)';
+    const clone=target.cloneNode(true); clone.classList.remove('hidden'); clone.removeAttribute('id'); clone.querySelectorAll('[id]').forEach(x=>x.removeAttribute('id'));
+    Object.assign(clone.style,{position:'absolute',left:'0',top:'0',width:`${width}px`,minWidth:`${width}px`,maxWidth:`${width}px`,margin:'0',pointerEvents:'none',transform:`translate3d(${direction*(width+gap)}px,0,0)`,willChange:'transform'});
+    const overlay=document.createElement('div');
+    Object.assign(overlay.style,{position:'absolute',left:`${cr.left-wr.left}px`,top:`${cr.top-wr.top}px`,width:`${width}px`,height:`${Math.max(cr.height,1)}px`,overflow:'hidden',pointerEvents:'none',zIndex:'5'});
+    overlay.appendChild(clone);wrap.appendChild(overlay);adminTabAnimating=true;
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{
+        current.style.transition='transform 220ms cubic-bezier(.22,.61,.36,1)';
+        clone.style.transition='transform 220ms cubic-bezier(.22,.61,.36,1)';
+        current.style.transform=`translate3d(${-direction*(width+gap)}px,0,0)`;
+        clone.style.transform='translate3d(0,0,0)';
+    }));
+    const done=()=>{
+        overlay.remove();
+        Object.assign(current.style,{position:'',zIndex:'',pointerEvents:'',willChange:'',transform:'',transition:''});
+        current.classList.add('hidden');target.classList.remove('hidden');
+        wrap.style.position=prevPos;wrap.style.overflow=prevOverflow;
+        updateAdminTabButtons(type);adminTabAnimating=false;
+    };
+    clone.addEventListener('transitionend',done,{once:true});setTimeout(done,300);
+}
+
+function initAdminTabSwipe(){
+    const area=document.querySelector('main');
+    if(!area || area.dataset.swipeReady) return;
+    area.dataset.swipeReady='1';
+
+    let startX=0,startY=0,lastX=0,lastTime=0,velocityX=0;
+    let tracking=false,axisLocked=null,dragPrepared=false;
+    let currentView=null,targetView=null,targetType='',direction=0,width=1;
+    let contentWrap=null,overlay=null,targetClone=null;
+    let previousWrapPosition='',previousWrapOverflow='';
+    const swipeGap=12;
+
+    function removeDuplicateIds(root){
+        if(root.id) root.removeAttribute('id');
+        root.querySelectorAll('[id]').forEach(el=>el.removeAttribute('id'));
+        root.querySelectorAll('input,button,select,textarea,a').forEach(el=>el.tabIndex=-1);
+    }
+
+    function clearSwipe(showTarget){
+        overlay?.remove();
+        overlay=null;
+
+        if(currentView){
+            currentView.style.position='';
+            currentView.style.zIndex='';
+            currentView.style.transform='';
+            currentView.style.transition='';
+            currentView.style.willChange='';
+            currentView.style.pointerEvents='';
+        }
+
+        if(currentView && targetView){
+            if(showTarget){
+                currentView.classList.add('hidden');
+                targetView.classList.remove('hidden');
+                updateAdminTabButtons(targetType);
+            }else{
+                currentView.classList.remove('hidden');
+                targetView.classList.add('hidden');
+            }
+        }
+
+        if(contentWrap){
+            contentWrap.style.position=previousWrapPosition;
+            contentWrap.style.overflow=previousWrapOverflow;
+        }
+
+        adminTabAnimating=false;
+        dragPrepared=false;
+        currentView=null;
+        targetView=null;
+        targetClone=null;
+        contentWrap=null;
+    }
+
+    function prepareDrag(deltaX){
+        currentView=document.getElementById(`view-${getActiveAdminTab()}`);
+        if(!currentView) return false;
+
+        const currentType=getActiveAdminTab();
+        const currentIndex=ADMIN_TAB_ORDER.indexOf(currentType);
+        if(currentIndex<0) return false;
+
+        direction=deltaX<0?1:-1;
+        targetType=ADMIN_TAB_ORDER[(currentIndex+direction+ADMIN_TAB_ORDER.length)%ADMIN_TAB_ORDER.length];
+        targetView=document.getElementById(`view-${targetType}`);
+        if(!targetView || targetView===currentView) return false;
+
+        renderAdminTab(targetType);
+
+        contentWrap=currentView.parentElement;
+        const currentRect=currentView.getBoundingClientRect();
+        const wrapRect=contentWrap.getBoundingClientRect();
+        width=Math.max(currentRect.width,1);
+
+        previousWrapPosition=contentWrap.style.position;
+        previousWrapOverflow=contentWrap.style.overflow;
+        if(getComputedStyle(contentWrap).position==='static') contentWrap.style.position='relative';
+        contentWrap.style.overflow='hidden';
+
+        Object.assign(currentView.style,{
+            position:'relative',
+            zIndex:'5',
+            transform:'translate3d(0,0,0)',
+            transition:'none',
+            willChange:'transform',
+            pointerEvents:'none'
+        });
+
+        targetClone=targetView.cloneNode(true);
+        removeDuplicateIds(targetClone);
+        targetClone.classList.remove('hidden');
+
+        overlay=document.createElement('div');
+        overlay.setAttribute('aria-hidden','true');
+        Object.assign(overlay.style,{
+            position:'absolute',
+            left:`${currentRect.left-wrapRect.left}px`,
+            top:`${currentRect.top-wrapRect.top}px`,
+            width:`${width}px`,
+            height:`${Math.max(currentRect.height,1)}px`,
+            overflow:'hidden',
+            pointerEvents:'none',
+            zIndex:'5',
+            contain:'layout paint size'
+        });
+
+        Object.assign(targetClone.style,{
+            position:'absolute',
+            left:'0',
+            top:'0',
+            width:`${width}px`,
+            minWidth:`${width}px`,
+            maxWidth:`${width}px`,
+            margin:'0',
+            boxSizing:'border-box',
+            transition:'none',
+            willChange:'transform',
+            pointerEvents:'none',
+            transform:`translate3d(${direction*(width+swipeGap)}px,0,0)`
+        });
+
+        overlay.appendChild(targetClone);
+        contentWrap.appendChild(overlay);
+        adminTabAnimating=true;
+        dragPrepared=true;
+        return true;
+    }
+
+    function moveViews(deltaX){
+        if(!dragPrepared || !currentView || !targetClone) return;
+        const clamped=Math.max(-width,Math.min(width,deltaX));
+        currentView.style.transform=`translate3d(${clamped}px,0,0)`;
+        targetClone.style.transform=`translate3d(${direction*(width+swipeGap)+clamped}px,0,0)`;
+    }
+
+    function settleViews(complete){
+        if(!dragPrepared || !currentView || !targetClone) return;
+        const duration=complete?220:180;
+        const easing='cubic-bezier(.22,.61,.36,1)';
+
+        currentView.style.transition=`transform ${duration}ms ${easing}`;
+        targetClone.style.transition=`transform ${duration}ms ${easing}`;
+
+        requestAnimationFrame(()=>{
+            if(complete){
+                currentView.style.transform=`translate3d(${-direction*(width+swipeGap)}px,0,0)`;
+                targetClone.style.transform='translate3d(0,0,0)';
+            }else{
+                currentView.style.transform='translate3d(0,0,0)';
+                targetClone.style.transform=`translate3d(${direction*(width+swipeGap)}px,0,0)`;
+            }
+        });
+
+        let finished=false;
+        const done=()=>{
+            if(finished) return;
+            finished=true;
+            clearSwipe(complete);
+        };
+
+        targetClone.addEventListener('transitionend',done,{once:true});
+        setTimeout(done,duration+80);
+    }
+
+    area.addEventListener('touchstart',event=>{
+        if(hasOpenBlockingOverlay() || adminTabAnimating || event.touches.length!==1) return;
+        if(event.target.closest('#other-unit-view-box')) return;
+        if(event.target.closest('input,textarea,select,button,a,[contenteditable="true"]')) return;
+
+        const touch=event.touches[0];
+        startX=lastX=touch.clientX;
+        startY=touch.clientY;
+        lastTime=performance.now();
+        velocityX=0;
+        tracking=true;
+        axisLocked=null;
+        dragPrepared=false;
+    },{passive:true});
+
+    area.addEventListener('touchmove',event=>{
+        if(!tracking || event.touches.length!==1) return;
+
+        const touch=event.touches[0];
+        const deltaX=touch.clientX-startX;
+        const deltaY=touch.clientY-startY;
+        const absX=Math.abs(deltaX);
+        const absY=Math.abs(deltaY);
+
+        if(!axisLocked){
+            if(absX<8 && absY<8) return;
+            axisLocked=absX>absY*1.15?'x':'y';
+            if(axisLocked==='y'){
+                tracking=false;
+                return;
+            }
+        }
+
+        if(axisLocked!=='x') return;
+        event.preventDefault();
+
+        if(!dragPrepared && !prepareDrag(deltaX)){
+            tracking=false;
+            return;
+        }
+
+        const now=performance.now();
+        const elapsed=Math.max(now-lastTime,1);
+        velocityX=(touch.clientX-lastX)/elapsed;
+        lastX=touch.clientX;
+        lastTime=now;
+
+        moveViews(deltaX);
+    },{passive:false});
+
+    area.addEventListener('touchend',event=>{
+        if(!tracking) return;
+        tracking=false;
+        if(!dragPrepared || event.changedTouches.length!==1) return;
+
+        const deltaX=event.changedTouches[0].clientX-startX;
+        const expected=Math.sign(deltaX)===-direction;
+        const passedDistance=Math.abs(deltaX)>=width*.24;
+        const passedVelocity=Math.abs(velocityX)>=.45;
+        settleViews(expected && (passedDistance || passedVelocity));
+    },{passive:true});
+
+    area.addEventListener('touchcancel',()=>{
+        tracking=false;
+        if(dragPrepared) settleViews(false);
+    },{passive:true});
+}
+
+let currentUser=null;
+let currentProfile=null;
+let currentUnit=null;
+let outData=[];
+let profiles=[];
+let unitTransferRequests=[];
+let unitTransferUserMap=new Map();
+let unitTransferFromUnitMap=new Map();
+let joinUnitSearchTimer=null;
+let rateMode='all';
+const now=new Date();
+let currentYear=now.getFullYear();
+let currentMonth=now.getMonth();
+let detailYear=now.getFullYear();
+let detailMonth=now.getMonth();
+
+function escapeHtml(value){
+    return String(value ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
+}
+function toDateStr(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
+function getTodayString(){return toDateStr(new Date());}
+function getApprovedUsers(){return profiles.filter(p=>p.role==='user' && p.user_approved===true);}
+function getMemberCount(){return getApprovedUsers().length;}
+function getUserName(userId){return profiles.find(p=>p.id===userId)?.name || outData.find(o=>o.user_id===userId)?.name || ''}
+function getUserPhone(userId){return profiles.find(p=>p.id===userId)?.phone || ''}
+function getDayOutings(dateStr, mode='all'){
+    const approvedIds=new Set(getApprovedUsers().map(p=>p.id));
+    return outData.filter(item=>approvedIds.has(item.user_id) && item.start<=dateStr && item.end>=dateStr && (mode==='all' || item.type==='vacation'));
+}
+function getRate(dateStr, mode=rateMode){
+    const total=getMemberCount();
+    if(total===0) return 0;
+    const ids=new Set(getDayOutings(dateStr, mode).map(item=>item.user_id));
+    return Math.round((ids.size/total)*100);
+}
+function getRateStyle(percent, mode=rateMode){
+    const max=mode==='vacation'?15:30;
+    const t=Math.max(0, Math.min(percent, max))/max;
+    const r=255;
+    const g=Math.round(255 - (255-140)*t);
+    const b=Math.round(255 - (255-40)*t);
+    const textColor=t>=0.55?'#ffffff':'#F28C28';
+    return {background:`rgb(${r},${g},${b})`, color:textColor};
+}
+
+async function loadUnit(){
+    if(!currentProfile?.unit_id){currentUnit=null;return;}
+    const {data,error}=await sb.from('units').select('id,unit_name,unit_code').eq('id',currentProfile.unit_id).maybeSingle();
+    if(error){console.error(error);triggerToast('부대 정보를 불러오지 못했습니다.');return;}
+    currentUnit=data;
+}
+async function loadData(){
+    if(!currentProfile?.unit_id){outData=[];profiles=[];return;}
+    const [{data:outingData,error:outingError},{data:profileData,error:profileError}]=await Promise.all([
+        sb.from('outing').select('*').eq('unit_id',currentProfile.unit_id).order('start'),
+        sb.from('profiles').select('id,name,phone,role,unit_id,user_approved,approval_status,enlist_date,discharge_date').eq('unit_id',currentProfile.unit_id).order('name')
+    ]);
+    if(outingError){console.error(outingError);triggerToast('출타 정보를 불러오지 못했습니다.');}
+    if(profileError){console.error(profileError);triggerToast('부대원 정보를 불러오지 못했습니다.');}
+    outData=outingData||[];
+    profiles=profileData||[];
+    await loadUnitTransferRequests();
+}
+
+
+async function loadUnitTransferRequests(){
+    unitTransferRequests=[];
+    unitTransferUserMap=new Map();
+    unitTransferFromUnitMap=new Map();
+    if(!currentProfile?.unit_id) return;
+
+    const {data,error}=await sb
+        .from('unit_transfer_requests')
+        .select('id,user_id,from_unit_id,to_unit_id,status,created_at,requester_name,requester_phone,requester_email')
+        .eq('to_unit_id', currentProfile.unit_id)
+        .eq('status','pending')
+        .order('created_at', {ascending:true});
+
+    if(error){
+        console.error(error);
+        triggerToast('부대이동 신청을 불러오지 못했습니다.');
+        return;
+    }
+
+    unitTransferRequests=data||[];
+    const userIds=[...new Set(unitTransferRequests.map(r=>r.user_id).filter(Boolean))];
+    const unitIds=[...new Set(unitTransferRequests.map(r=>r.from_unit_id).filter(Boolean))];
+
+    if(userIds.length>0){
+        const {data:userData,error:userError}=await sb
+            .from('profiles')
+            .select('id,name,phone,unit_id,role,user_approved,approval_status')
+            .in('id', userIds);
+        if(userError){console.error(userError);} else {
+            (userData||[]).forEach(profile=>unitTransferUserMap.set(profile.id, profile));
+        }
+    }
+
+    if(unitIds.length>0){
+        const {data:unitData,error:unitError}=await sb
+            .from('units')
+            .select('id,unit_name,unit_code')
+            .in('id', unitIds);
+        if(unitError){console.error(unitError);} else {
+            (unitData||[]).forEach(unit=>unitTransferFromUnitMap.set(unit.id, unit));
+        }
+    }
+}
+
+function updateTitle(){
+    const title=currentUnit?.unit_name ? `${currentUnit.unit_name} 관리자` : '관리자';
+    document.title=title;
+    document.getElementById('page-title').innerText=title;
+    document.getElementById('edit-unit-name').value=currentUnit?.unit_name || '';
+}
+function switchAdminTab(type){
+    const from=getActiveAdminTab();
+    if(from===type)return;
+    const fi=ADMIN_TAB_ORDER.indexOf(from),ti=ADMIN_TAB_ORDER.indexOf(type);
+    animateAdminTab(type,ti>=fi?1:-1);
+}
+function setRateMode(mode){
+    rateMode=mode;
+    const all=document.getElementById('btn-rate-all');
+    const vac=document.getElementById('btn-rate-vacation');
+    all.className = mode==='all' ? 'bg-[#F28C28] text-white px-3 py-1 rounded-lg border border-[#F28C28] transition-all' : 'bg-orange-50 text-[#F28C28] px-3 py-1 rounded-lg border border-orange-200 transition-all';
+    vac.className = mode==='vacation' ? 'bg-[#F28C28] text-white px-3 py-1 rounded-lg border border-[#F28C28] transition-all' : 'bg-orange-50 text-[#F28C28] px-3 py-1 rounded-lg border border-orange-200 transition-all';
+    renderRateCalendar();
+}
+function changeMonth(offset){
+    currentMonth+=offset;
+    if(currentMonth>11){currentMonth=0;currentYear++;}
+    if(currentMonth<0){currentMonth=11;currentYear--;}
+    renderRateCalendar();
+}
+function closeRateSummary(){
+    const popover=document.getElementById('rate-summary-popover');
+    if(popover) popover.classList.add('hidden');
+}
+function showRateSummary(event,dateStr){
+    event.stopPropagation();
+    const popover=document.getElementById('rate-summary-popover');
+    if(!popover) return;
+    const counts={weekday:0,weekend:0,overnight:0,vacation:0};
+    getDayOutings(dateStr,'all').forEach(item=>{
+        if(Object.prototype.hasOwnProperty.call(counts,item.type)) counts[item.type]++;
+    });
+    const rows=[
+        ['weekday','평일외출'],
+        ['weekend','주말외출'],
+        ['overnight','외박'],
+        ['vacation','휴가']
+    ];
+    popover.innerHTML=rows.map(([type,label])=>`<div class="rate-summary-row"><span class="flex items-center gap-2"><span class="rate-summary-mark color-${type}"></span>${label}</span><span>: ${counts[type]}</span></div>`).join('');
+    popover.classList.remove('hidden');
+    popover.getAnimations().forEach(a=>a.cancel());
+    popover.animate([{opacity:0,transform:'translateY(10px) scale(.92)'},{opacity:1,transform:'translateY(0) scale(1)'}],{duration:220,easing:'cubic-bezier(.22,1,.36,1)',fill:'both'});
+
+    const width=popover.offsetWidth || 154;
+    const height=popover.offsetHeight || 120;
+    const margin=8;
+    const pointX=event.clientX;
+    const pointY=event.clientY;
+    let left=pointX+10;
+    let top=pointY-height-10;
+    if(left+width>window.innerWidth-margin) left=window.innerWidth-width-margin;
+    if(left<margin) left=margin;
+    if(top<margin) top=Math.min(window.innerHeight-height-margin, pointY+10);
+    popover.style.left=`${left}px`;
+    popover.style.top=`${Math.max(margin,top)}px`;
+}
+function renderRateCalendar(){
+    closeRateSummary();
+    const grid=document.getElementById('rate-calendar-grid');
+    const title=document.getElementById('calendar-title');
+    grid.innerHTML='';
+    title.innerText=`${currentYear}년 ${String(currentMonth+1).padStart(2,'0')}월`;
+    ['월','화','수','목','금','토','일'].forEach((day,i)=>{
+        const div=document.createElement('div');
+        div.className='text-center text-xs font-bold mb-2 '+(i===5?'text-blue-600':i===6?'text-red-500':'text-gray-400');
+        div.innerText=day;
+        grid.appendChild(div);
+    });
+    const firstDay=new Date(currentYear,currentMonth,1).getDay();
+    const adjustedFirstDay=firstDay===0?6:firstDay-1;
+    const lastDate=new Date(currentYear,currentMonth+1,0).getDate();
+    const prevLastDate=new Date(currentYear,currentMonth,0).getDate();
+    for(let i=adjustedFirstDay;i>0;i--){
+        const dayDiv=document.createElement('div');
+        dayDiv.className='rate-cell text-gray-300 bg-white';
+        dayDiv.innerHTML=`<span class="text-xs font-semibold">${prevLastDate-i+1}</span>`;
+        grid.appendChild(dayDiv);
+    }
+    for(let date=1;date<=lastDate;date++){
+        const dateStr=`${currentYear}-${String(currentMonth+1).padStart(2,'0')}-${String(date).padStart(2,'0')}`;
+        const percent=getRate(dateStr, rateMode);
+        const style=getRateStyle(percent, rateMode);
+        const dow=new Date(currentYear,currentMonth,date).getDay();
+        const dayDiv=document.createElement('div');
+        dayDiv.className='rate-cell cursor-pointer active:scale-[.98] transition-transform';
+        dayDiv.style.background=style.background;
+        if(dateStr===getTodayString()){
+            dayDiv.classList.add('ring-2','ring-inset','ring-emerald-500','rounded-lg');
+        }
+        dayDiv.setAttribute('role','button');
+        dayDiv.setAttribute('tabindex','0');
+        dayDiv.setAttribute('aria-label',`${dateStr} 출타 요약 보기`);
+        dayDiv.onclick=(event)=>showRateSummary(event,dateStr);
+        dayDiv.onkeydown=(event)=>{
+            if(event.key==='Enter' || event.key===' '){
+                event.preventDefault();
+                const rect=dayDiv.getBoundingClientRect();
+                showRateSummary({stopPropagation(){},clientX:rect.right-4,clientY:rect.top+4},dateStr);
+            }
+        };
+        dayDiv.innerHTML=`
+            <span class="text-xs font-semibold ${dow===0?'text-red-500':dow===6?'text-blue-600':'text-gray-500'}">${date}</span>
+            <span class="rate-value" style="color:${style.color}">${percent}</span>
+        `;
+        grid.appendChild(dayDiv);
+    }
+}
+function changeDetailMonth(offset){
+    detailMonth+=offset;
+    if(detailMonth>11){detailMonth=0;detailYear++;}
+    if(detailMonth<0){detailMonth=11;detailYear--;}
+    renderRateDetail();
+}
+function renderRateDetail(){
+    const list=document.getElementById('rate-detail-list');
+    document.getElementById('detail-title').innerText=`${detailYear}년 ${String(detailMonth+1).padStart(2,'0')}월`;
+    list.innerHTML='';
+    const days=['일','월','화','수','목','금','토'];
+    const lastDate=new Date(detailYear,detailMonth+1,0).getDate();
+    for(let date=1;date<=lastDate;date++){
+        const d=new Date(detailYear,detailMonth,date);
+        const dateStr=toDateStr(d);
+        const allRate=getRate(dateStr,'all');
+        const vacationRate=getRate(dateStr,'vacation');
+        const mmdd=`${detailMonth+1}/${date}(${days[d.getDay()]})`;
+        const card=document.createElement('div');
+        const isToday=dateStr===getTodayString();
+        card.className=`card mx-1 p-2 grid grid-cols-[56px_82px_minmax(0,1fr)] items-center gap-x-2 gap-y-2 ${isToday?'bg-yellow-50 border-yellow-300 ring-1 ring-yellow-200':''}`;
+        card.innerHTML=`
+            <div class="w-14 h-14 rounded-xl ${isToday?'bg-yellow-100 border-yellow-300':'bg-gray-100 border-gray-200'} border flex items-center justify-center font-black text-[11px] text-gray-700 shrink-0">${mmdd}</div>
+            <div class="grid grid-cols-2 items-end gap-2 w-[82px] pl-1">
+                <div class="text-2xl font-black text-[#F28C28] leading-none text-center tabular-nums">${allRate}</div>
+                <div class="text-base font-black text-gray-900 leading-none mb-0.5 text-center tabular-nums">${vacationRate}</div>
+            </div>
+            <div class="min-w-0 flex flex-row justify-end gap-1">
+                <button onclick="showOutingPopup('${dateStr}','vacation', this)" class="min-w-[54px] h-10 px-2 py-2 bg-orange-50 text-[#F28C28] rounded-xl text-xs font-black border border-orange-100 flex items-center justify-center whitespace-nowrap">휴가자</button>
+                <button onclick="showOutingPopup('${dateStr}','non-vacation', this)" class="min-w-[76px] h-10 px-2 py-2 bg-gray-100 text-gray-700 rounded-xl text-xs font-black border border-gray-200 flex items-center justify-center whitespace-nowrap">휴가 외 출타자</button>
+            </div>`;
+        list.appendChild(card);
+    }
+}
+function createOutingCard(item){
+    const typeNames={weekday:'평일외출',weekend:'주말외출',overnight:'외박',vacation:'휴가'};
+    const typeBgClasses={weekday:'color-weekday',weekend:'color-weekend',overnight:'color-overnight',vacation:'color-vacation'};
+    const period=(item.type==='weekday'||item.type==='weekend')?`일시: ${item.start}`:`기간: ${item.start} ~ ${item.end}`;
+    const div=document.createElement('div');
+    div.className='p-3 bg-white rounded-xl text-sm border border-gray-100 flex justify-between items-center';
+    div.innerHTML=`
+        <div class="min-w-0 mr-2">
+            <p class="font-bold text-gray-900 text-base truncate">${escapeHtml(item.name || getUserName(item.user_id))}</p>
+            ${getUserPhone(item.user_id)?`<p class="text-xs text-gray-500 mt-1 truncate">연락처: ${escapeHtml(getUserPhone(item.user_id))}</p>`:''}
+            ${item.destination?`<p class="text-xs text-gray-500 mt-1 truncate">행선지: ${escapeHtml(item.destination)}</p>`:''}
+            <p class="text-xs text-gray-500 mt-1 truncate">${period}</p>
+        </div>
+        <span class="px-3 py-1 rounded-lg text-xs font-black text-white ${typeBgClasses[item.type]}" style="color:#fff!important;">${typeNames[item.type]}</span>`;
+    return div;
+}
+function showOutingPopup(dateStr, group, sourceElement=null){
+    const title=document.getElementById('outing-popup-title');
+    const list=document.getElementById('outing-popup-list');
+    const isVacation=group==='vacation';
+    const items=getDayOutings(dateStr,'all')
+        .filter(item=>isVacation?item.type==='vacation':item.type!=='vacation')
+        .sort((a,b)=>a.start.localeCompare(b.start));
+    title.innerText=`${dateStr} ${isVacation?'휴가자':'휴가 외 출타자'}`;
+    list.innerHTML='';
+    if(items.length===0){list.innerHTML='<p class="text-center py-8 text-sm text-gray-400">해당 인원이 없습니다.</p>';}
+    items.forEach(item=>list.appendChild(createOutingCard(item)));
+    animatePopupFromSource(document.getElementById('outing-popup'),sourceElement);
+}
+function closeOutingPopup(){closePopupDown(document.getElementById('outing-popup'));}
+
+function createMemberCard(profile, extra='', showServiceDates=false){
+    const serviceDates=showServiceDates ? `
+            <p class="text-xs text-gray-500 mt-1 truncate">입대일: ${escapeHtml(profile.enlist_date || '미입력')}</p>
+            <p class="text-xs text-gray-500 mt-1 truncate">전역일: ${escapeHtml(profile.discharge_date || '미입력')}</p>` : '';
+    return `<div class="card p-4 flex justify-between items-center text-sm">
+        <div class="min-w-0 mr-2">
+            <p class="font-bold text-gray-900 text-base truncate">${escapeHtml(profile.name || '이름 없음')}</p>
+            <p class="text-xs text-gray-500 mt-1 truncate">연락처: ${escapeHtml(profile.phone || '미입력')}</p>
+            ${serviceDates}
+        </div>${extra}</div>`;
+}
+function renderMembers(){
+    const pending=profiles.filter(p=>p.role==='user' && p.user_approved!==true && (p.approval_status||'pending')==='pending');
+    const admins=profiles.filter(p=>p.role==='admin');
+    const members=profiles
+        .filter(p=>p.role==='user' && p.user_approved===true)
+        .sort((a,b)=>{
+            const aDate=a.enlist_date || '9999-12-31';
+            const bDate=b.enlist_date || '9999-12-31';
+            return aDate.localeCompare(bDate);
+        });
+    const adminCountTitle=document.getElementById('admin-count-title');
+    const memberCountTitle=document.getElementById('member-count-title');
+    if(adminCountTitle) adminCountTitle.innerText=`<관리자(${admins.length})>`;
+    if(memberCountTitle) memberCountTitle.innerText=`<부대원(${members.length})>`;
+
+    const transferList=document.getElementById('unit-transfer-list');
+    if(transferList){
+        transferList.innerHTML=unitTransferRequests.length?unitTransferRequests.map(req=>createUnitTransferCard(req)).join(''):'<div class="text-center py-8 text-sm text-gray-400 bg-white rounded-xl border border-gray-100">부대이동 신청자가 없습니다.</div>';
+    }
+    document.getElementById('pending-list').innerHTML=pending.length?pending.map(p=>createMemberCard(p,`
+        <div class="flex gap-1 shrink-0">
+            <button onclick="approveUser('${p.id}')" class="px-3 py-1.5 bg-[#F28C28] text-white rounded-lg text-xs font-black">승인</button>
+            <button onclick="rejectUser('${p.id}')" class="px-3 py-1.5 bg-red-50 text-red-600 rounded-lg text-xs font-black">반려</button>
+        </div>`)).join(''):'<div class="text-center py-8 text-sm text-gray-400 bg-white rounded-xl border border-gray-100">가입 희망자가 없습니다.</div>';
+    document.getElementById('admin-list').innerHTML=admins.length?admins.map(p=>createMemberCard(p)).join(''):'<div class="text-center py-8 text-sm text-gray-400 bg-white rounded-xl border border-gray-100">관리자가 없습니다.</div>';
+    document.getElementById('member-list').innerHTML=members.length?members.map(p=>createMemberCard(p,'',true)).join(''):'<div class="text-center py-8 text-sm text-gray-400 bg-white rounded-xl border border-gray-100">부대원이 없습니다.</div>';
+}
+
+function createUnitTransferCard(req){
+    const user=unitTransferUserMap.get(req.user_id) || {};
+    const fromUnit=unitTransferFromUnitMap.get(req.from_unit_id) || {};
+    const requestedAt=req.created_at ? new Date(req.created_at).toLocaleDateString('ko-KR') : '';
+    return `<div class="card p-4 text-sm">
+        <div class="flex justify-between items-start gap-2">
+            <div class="min-w-0">
+                <p class="font-bold text-gray-900 text-base truncate">${escapeHtml(user.name || req.requester_name || '이름 없음')}</p>
+                <p class="text-xs text-gray-500 mt-1 truncate">연락처: ${escapeHtml(user.phone || req.requester_phone || '미입력')}</p>
+                <p class="text-xs text-emerald-700 font-bold mt-1 truncate">이전 부대: ${escapeHtml(fromUnit.unit_name || '확인 불가')}${fromUnit.unit_code ? ' ('+escapeHtml(fromUnit.unit_code)+')' : ''}</p>
+                ${requestedAt?`<p class="text-[11px] text-gray-400 mt-1">신청일: ${escapeHtml(requestedAt)}</p>`:''}
+            </div>
+            <div class="flex gap-1 shrink-0">
+                <button onclick="approveUnitTransfer('${req.id}','${req.user_id}','${req.from_unit_id || ''}')" class="px-3 py-1.5 bg-[#F28C28] text-white rounded-lg text-xs font-black">승인</button>
+                <button onclick="rejectUnitTransfer('${req.id}')" class="px-3 py-1.5 bg-red-50 text-red-600 rounded-lg text-xs font-black">반려</button>
+            </div>
+        </div>
+    </div>`;
+}
+
+async function approveUnitTransfer(requestId, userId, fromUnitId){
+    const ok=await showConfirmToast('부대이동 신청을 승인하시겠습니까?\n승인 즉시 해당 사용자의 소속 부대가 변경됩니다.','승인','취소');
+    if(!ok) return;
+
+    const {error:approveError}=await sb.rpc('approve_unit_transfer_request', {p_request_id: requestId});
+    if(approveError){
+        console.error(approveError);
+        triggerToast('부대이동 승인 실패\n'+approveError.message);
+        return;
+    }
+
+    unitTransferRequests=unitTransferRequests.filter(req=>req.id!==requestId);
+    triggerToast('부대이동을 승인했습니다.');
+    await loadData();
+    renderMembers();
+    renderRateCalendar();
+}
+
+async function rejectUnitTransfer(requestId){
+    const ok=await showConfirmToast('부대이동 신청을 반려하시겠습니까?','반려','취소');
+    if(!ok) return;
+    const {error}=await sb.rpc('reject_unit_transfer_request', {
+        p_request_id: requestId
+    });
+    if(error){
+        triggerToast('부대이동 반려 실패\n'+error.message);
+        return;
+    }
+    unitTransferRequests=unitTransferRequests.filter(req=>req.id!==requestId);
+    renderMembers();
+    triggerToast('부대이동 신청을 반려했습니다.');
+}
+
+async function approveUser(userId){
+    const {error}=await sb.rpc('approve_unit_user', {
+        target_user_id: userId
+    });
+
+    if(error){
+        triggerToast('승인 실패\n'+error.message);
+        return;
+    }
+
+    triggerToast('승인되었습니다.');
+    await loadData();
+    renderMembers();
+    renderRateCalendar();
+}
+
+async function rejectUser(userId){
+    const ok=await showConfirmToast('회원가입 신청을 반려하시겠습니까?','반려','취소');
+    if(!ok) return;
+
+    const {error}=await sb.rpc('reject_unit_user', {
+        target_user_id: userId
+    });
+
+    if(error){
+        triggerToast('반려 실패\n'+error.message);
+        return;
+    }
+
+    profiles = profiles.filter(profile => profile.id !== userId);
+    renderMembers();
+    triggerToast('반려되었습니다.');
+
+    await loadData();
+    renderMembers();
+    renderRateCalendar();
+}
+
+
+function handleJoinUnitSearchInput(){
+    clearTimeout(joinUnitSearchTimer);
+    joinUnitSearchTimer=setTimeout(searchJoinUnits, 250);
+}
+
+function renderJoinUnitResults(items){
+    const box=document.getElementById('join-unit-result');
+    if(!box) return;
+
+    if(!items || items.length===0){
+        box.innerHTML='<div class="text-center py-4 text-xs text-gray-400 bg-gray-50 rounded-xl border border-gray-100">검색 결과가 없습니다.</div>';
+        return;
+    }
+
+    box.innerHTML=items.map(unit=>{
+        const isCurrent=currentProfile?.unit_id===unit.id;
+        return `<div class="p-3 bg-gray-50 rounded-xl border border-gray-100 flex justify-between items-center gap-2">
+            <div class="min-w-0">
+                <p class="font-bold text-sm text-gray-900 truncate">${escapeHtml(unit.unit_name)}</p>
+                <p class="text-xs text-gray-500 mt-0.5">부대코드: ${escapeHtml(unit.unit_code || '')}</p>
+            </div>
+            <button onclick="joinUnit('${unit.id}')" ${isCurrent?'disabled':''} class="px-3 py-1.5 rounded-lg text-xs font-black shrink-0 ${isCurrent?'bg-gray-200 text-gray-500':'bg-[#F28C28] text-white'}">
+                ${isCurrent?'소속 중':'가입'}
+            </button>
+        </div>`;
+    }).join('');
+}
+
+async function searchJoinUnits(){
+    const input=document.getElementById('join-unit-search');
+    const box=document.getElementById('join-unit-result');
+    if(!input || !box) return;
+
+    const keyword=input.value.trim();
+    if(keyword.length<1){
+        box.innerHTML='<div class="text-center py-4 text-xs text-gray-400 bg-gray-50 rounded-xl border border-gray-100">부대명 또는 부대코드를 입력하세요.</div>';
+        return;
+    }
+
+    box.innerHTML='<div class="text-center py-4 text-xs text-gray-400">검색 중...</div>';
+
+    const safeKeyword=keyword.replaceAll('%','').replaceAll(',','');
+    const {data,error}=await sb
+        .from('units')
+        .select('id,unit_name,unit_code')
+        .or(`unit_name.ilike.*${safeKeyword}*,unit_code.ilike.*${safeKeyword}*`)
+        .order('unit_name')
+        .limit(20);
+
+    if(error){
+        console.error(error);
+        box.innerHTML='<div class="text-center py-4 text-xs text-red-500 bg-red-50 rounded-xl border border-red-100">부대 검색 실패</div>';
+        return;
+    }
+
+    renderJoinUnitResults(data || []);
+}
+
+async function joinUnit(unitId){
+    if(!unitId || !currentUser) return;
+
+    const ok=await showConfirmToast('선택한 부대로 가입하시겠습니까?','가입','취소');
+    if(!ok) return;
+
+    const {data:unitData,error:unitError}=await sb
+        .from('units')
+        .select('id,unit_name,unit_code')
+        .eq('id', unitId)
+        .maybeSingle();
+
+    if(unitError || !unitData){
+        triggerToast('부대 정보를 불러오지 못했습니다.');
+        return;
+    }
+
+    const {error:updateError}=await sb.rpc('join_admin_unit', {
+        p_unit_id: unitData.id
+    });
+
+    if(updateError){
+        triggerToast('부대 가입 실패\n' + updateError.message);
+        return;
+    }
+
+    currentProfile={...currentProfile, unit_id:unitData.id};
+    currentUnit=unitData;
+
+    triggerToast('부대 가입이 완료되었습니다.');
+    await loadData();
+    updateTitle();
+    renderUnitTab();
+    renderCurrentTab();
+    subscribeRealtime();
+}
+
+function toggleCreateUnitBox(sourceElement=null){
+    const box=document.getElementById('create-unit-box');
+    if(!box)return;
+    const opening=box.classList.contains('hidden');
+    box.getAnimations().forEach(a=>a.cancel());
+    if(opening){
+        box.classList.remove('hidden');
+        const h=box.scrollHeight;
+        box.animate([{height:'0px',opacity:0,transform:'translateY(-10px)'},{height:`${h}px`,opacity:1,transform:'translateY(0)'}],{duration:280,easing:'cubic-bezier(.22,1,.36,1)',fill:'both'}).finished.then(()=>{box.style.height='';});
+    }else{
+        const h=box.scrollHeight;
+        box.animate([{height:`${h}px`,opacity:1,transform:'translateY(0)'},{height:'0px',opacity:0,transform:'translateY(-10px)'}],{duration:230,easing:'cubic-bezier(.4,0,1,1)',fill:'both'}).finished.then(()=>{box.classList.add('hidden');box.style.height='';});
+    }
+}
+async function checkUnitNameExists(){
+    const name=document.getElementById('new-unit-name').value.trim();
+    const msg=document.getElementById('unit-exists-msg');
+    if(!name){msg.innerText='';return false;}
+    const {data,error}=await sb.from('units').select('id,unit_name').ilike('unit_name',name).limit(1);
+    if(error){console.error(error);msg.className='text-xs min-h-[16px] text-red-500';msg.innerText='부대명 확인 실패';return false;}
+    if((data||[]).length>0){msg.className='text-xs min-h-[16px] text-red-500';msg.innerText='해당 부대는 이미 존재합니다!';return true;}
+    msg.className='text-xs min-h-[16px] text-[#F28C28]';msg.innerText='사용 가능한 부대명입니다.';return false;
+}
+async function makeUniqueUnitCode(){
+    for(let i=0;i<20;i++){
+        const code=String(Math.floor(Math.random()*100000)).padStart(5,'0');
+        const {data,error}=await sb.from('units').select('id').eq('unit_code',code).limit(1);
+        if(!error && (!data || data.length===0)) return code;
+    }
+    return String(Date.now()).slice(-5);
+}
+async function createUnit(){
+    const name=document.getElementById('new-unit-name').value.trim();
+    if(!name){triggerToast('부대명을 입력하세요.');return;}
+    if(await checkUnitNameExists()) return;
+    const {data,error}=await sb.rpc('create_unit_and_join', {
+        p_unit_name: name
+    });
+    if(error){triggerToast('부대 생성 실패\n'+error.message);return;}
+    const createdUnit=Array.isArray(data) ? data[0] : data;
+    if(!createdUnit?.id){triggerToast('생성된 부대 정보를 불러오지 못했습니다.');return;}
+    currentProfile={...currentProfile, unit_id:createdUnit.id};
+    currentUnit=createdUnit;
+    const unitData=createdUnit;
+    document.getElementById('created-unit-code').innerText=`부대코드: ${unitData.unit_code}`;
+    animatePopupFromSource(document.getElementById('unit-created-popup'),document.querySelector('[onclick^="toggleCreateUnitBox"]'));
+    await loadData(); updateTitle(); renderUnitTab();
+}
+function closeUnitCreatedPopup(){closePopupDown(document.getElementById('unit-created-popup'));}
+function renderUnitTab(){
+    const info=document.getElementById('current-unit-info');
+    if(info){
+        if(currentUnit?.id){
+            info.innerHTML=`<p class="text-xs text-gray-500 mb-1">현재 소속 부대</p><p class="text-base font-black text-gray-900">${escapeHtml(currentUnit.unit_name)}</p><p class="text-xs text-[#F28C28] font-bold mt-1">부대코드: ${escapeHtml(currentUnit.unit_code || '')}</p>`;
+        }else{
+            info.innerHTML='<p class="text-sm font-bold text-gray-700">현재 소속 부대가 없습니다.</p><p class="text-xs text-gray-500 mt-1">부대 검색으로 기존 부대에 가입하거나 새 부대를 생성하세요.</p>';
+        }
+    }
+    document.getElementById('edit-unit-name').value=currentUnit?.unit_name || '';
+    const joinResult=document.getElementById('join-unit-result');
+    if(joinResult && joinResult.innerHTML.trim()===''){
+        joinResult.innerHTML='<div class="text-center py-4 text-xs text-gray-400 bg-gray-50 rounded-xl border border-gray-100">부대명 또는 부대코드를 입력하세요.</div>';
+    }
+}
+async function updateUnitName(){
+    if(!currentUnit?.id){triggerToast('수정할 소속 부대가 없습니다.');return;}
+    const name=document.getElementById('edit-unit-name').value.trim();
+    if(!name){triggerToast('부대명을 입력하세요.');return;}
+    const {error}=await sb.from('units').update({unit_name:name}).eq('id',currentUnit.id);
+    if(error){triggerToast('부대명 수정 실패\n'+error.message);return;}
+    currentUnit={...currentUnit, unit_name:name};
+    updateTitle();
+    triggerToast('부대명이 수정되었습니다.');
+}
+async function requestUnitDelete(sourceElement=null){
+    if(!currentUnit?.id){triggerToast('삭제 신청할 소속 부대가 없습니다.');return;}
+    const ok=await showConfirmToast('부대 삭제를 신청하시겠습니까?','신청','취소',sourceElement);
+    if(!ok) return;
+    const {error}=await sb.from('unit_delete').upsert({unit_id:currentUnit.id, unit_name:currentUnit.unit_name, requested_by:currentUser.id, status:'pending'}, {onConflict:'unit_id'});
+    if(error){triggerToast('삭제 신청 실패\n'+error.message);return;}
+    triggerToast('부대 삭제 신청이 접수되었습니다.');
+}
+
+
+let otherUnits=[];
+let otherUnitSearchTimer=null;
+let selectedOtherUnit=null;
+let otherOutData=[];
+let otherProfiles=[];
+let otherView='calendar';
+let otherYear=new Date().getFullYear();
+let otherMonth=new Date().getMonth();
+
+function renderFavoriteOtherUnits(){
+    const wrap=document.getElementById('favorite-other-unit-wrap');
+    const box=document.getElementById('favorite-other-unit-list');
+    if(!wrap || !box) return;
+
+    const favoriteIds=getOtherFavorites();
+
+    if(favoriteIds.length===0){
+        wrap.classList.remove('hidden');
+        box.innerHTML='<div class="text-center py-4 text-xs text-gray-400 bg-gray-50 rounded-xl border border-gray-100">즐겨찾기한 부대가 없습니다.</div>';
+        return;
+    }
+
+    const sourceItems=[
+        ...(otherUnits || []),
+        ...(selectedOtherUnit ? [selectedOtherUnit] : [])
+    ];
+
+    const uniqueMap=new Map();
+    sourceItems.forEach(unit=>{
+        if(unit?.id) uniqueMap.set(unit.id,unit);
+    });
+
+    const knownFavorites=favoriteIds
+        .map(id=>uniqueMap.get(id))
+        .filter(Boolean);
+
+    if(knownFavorites.length===favoriteIds.length){
+        renderFavoriteOtherUnitCards(knownFavorites);
+        return;
+    }
+
+    loadFavoriteOtherUnits();
+}
+
+async function loadFavoriteOtherUnits(){
+    const favoriteIds=getOtherFavorites();
+    const box=document.getElementById('favorite-other-unit-list');
+    const wrap=document.getElementById('favorite-other-unit-wrap');
+    if(!box || !wrap) return;
+
+    if(favoriteIds.length===0){
+        wrap.classList.remove('hidden');
+        box.innerHTML='<div class="text-center py-4 text-xs text-gray-400 bg-gray-50 rounded-xl border border-gray-100">즐겨찾기한 부대가 없습니다.</div>';
+        return;
+    }
+
+    const {data,error}=await sb
+        .from('units')
+        .select('id,unit_name,unit_code')
+        .in('id',favoriteIds);
+
+    if(error){
+        console.error(error);
+        box.innerHTML='<div class="text-center py-4 text-xs text-red-400 bg-white rounded-xl border border-red-100">즐겨찾기 부대를 불러오지 못했습니다.</div>';
+        return;
+    }
+
+    const orderMap=new Map(favoriteIds.map((id,index)=>[id,index]));
+    const items=(data || [])
+        .filter(unit=>unit.id!==currentProfile?.unit_id)
+        .sort((a,b)=>(orderMap.get(a.id) ?? 999)-(orderMap.get(b.id) ?? 999));
+
+    renderFavoriteOtherUnitCards(items);
+}
+
+function renderFavoriteOtherUnitCards(items){
+    const box=document.getElementById('favorite-other-unit-list');
+    const wrap=document.getElementById('favorite-other-unit-wrap');
+    if(!box || !wrap) return;
+
+    wrap.classList.remove('hidden');
+
+    if(!items.length){
+        box.innerHTML='<div class="text-center py-4 text-xs text-gray-400 bg-gray-50 rounded-xl border border-gray-100">즐겨찾기한 부대가 없습니다.</div>';
+        return;
+    }
+
+    box.innerHTML=items.map(unit=>`
+        <div onclick="selectOtherUnit('${unit.id}')" class="p-3 bg-yellow-50 rounded-xl border border-yellow-100 flex justify-between items-center gap-2 active:scale-[.99] transition-all cursor-pointer">
+            <div class="min-w-0">
+                <p class="font-bold text-sm text-gray-900 truncate">${escapeHtml(unit.unit_name)}</p>
+                <p class="text-xs text-[#F28C28] font-bold mt-1">부대코드: ${escapeHtml(unit.unit_code || '')}</p>
+            </div>
+            <button onclick="toggleOtherFavorite('${unit.id}', event)" class="shrink-0 w-10 h-10 rounded-xl bg-yellow-100 text-yellow-500 border border-yellow-200 text-xl font-black flex items-center justify-center" aria-label="즐겨찾기 해제">★</button>
+        </div>
+    `).join('');
+}
+
+function getOtherFavorites(){
+    try{return JSON.parse(localStorage.getItem('favorite_other_units') || '[]');}
+    catch(e){return [];}
+}
+function setOtherFavorites(ids){localStorage.setItem('favorite_other_units', JSON.stringify([...new Set(ids)]));}
+function isOtherFavorite(id){return getOtherFavorites().includes(id);}
+function toggleOtherFavorite(unitId, event){
+    if(event) event.stopPropagation();
+
+    const favs=getOtherFavorites();
+    const next=favs.includes(unitId)
+        ? favs.filter(id=>id!==unitId)
+        : [unitId, ...favs];
+
+    setOtherFavorites(next);
+    renderOtherUnitList(otherUnits);
+    renderFavoriteOtherUnits();
+}
+function sortOtherUnits(items){
+    const favs=getOtherFavorites();
+    return [...items].sort((a,b)=>{
+        const af=favs.includes(a.id), bf=favs.includes(b.id);
+        if(af!==bf) return af ? -1 : 1;
+        return String(a.unit_name||'').localeCompare(String(b.unit_name||''),'ko');
+    });
+}
+
+function handleOtherUnitSearchBlur(){
+    setTimeout(()=>{
+        const input=document.getElementById('other-unit-search');
+        const box=document.getElementById('other-unit-list');
+        const favoriteWrap=document.getElementById('favorite-other-unit-wrap');
+        const resultTitle=document.getElementById('other-unit-search-result-title');
+        if(!input || !box) return;
+
+        if(document.activeElement===input) return;
+
+        box.getAnimations().forEach(a=>a.cancel());
+
+        const currentHeight=Math.max(box.scrollHeight,1);
+        const animation=box.animate([
+            {maxHeight:`${currentHeight}px`,opacity:1,transform:'translateY(0)'},
+            {maxHeight:'0px',opacity:0,transform:'translateY(-8px)'}
+        ],{
+            duration:220,
+            easing:'cubic-bezier(.4,0,1,1)',
+            fill:'both'
+        });
+
+        animation.finished.then(()=>{
+            box.classList.add('hidden');
+            box.innerHTML='';
+            box.style.height='';
+            box.style.maxHeight='';
+            box.style.overflow='';
+            resultTitle?.classList.add('hidden');
+            input.value='';
+            favoriteWrap?.classList.remove('hidden');
+            renderFavoriteOtherUnits();
+        }).catch(()=>{});
+    },160);
+}
+
+function openOtherUnitResults(sourceElement){
+    const box=document.getElementById('other-unit-list');
+    const input=document.getElementById('other-unit-search');
+    const favoriteWrap=document.getElementById('favorite-other-unit-wrap');
+    const resultTitle=document.getElementById('other-unit-search-result-title');
+    if(!box || !input) return;
+
+    favoriteWrap?.classList.remove('hidden');
+
+    const q=input.value.trim();
+
+    if(!q){
+        box.innerHTML='';
+        box.classList.add('hidden');
+        resultTitle?.classList.add('hidden');
+        box.style.height='';
+        box.style.maxHeight='';
+        return;
+    }
+
+    resultTitle?.classList.remove('hidden');
+    box.classList.remove('hidden');
+    box.style.height='auto';
+    box.style.maxHeight='none';
+    box.style.overflow='visible';
+    box.getAnimations().forEach(a=>a.cancel());
+
+    searchOtherUnits().then(()=>{
+        requestAnimationFrame(()=>{
+            const targetHeight=Math.max(box.scrollHeight,80);
+            box.animate([
+                {maxHeight:'0px',opacity:0,transform:'translateY(-8px)'},
+                {maxHeight:`${targetHeight}px`,opacity:1,transform:'translateY(0)'}
+            ],{
+                duration:280,
+                easing:'cubic-bezier(.22,1,.36,1)',
+                fill:'both'
+            }).finished.then(()=>{
+                box.style.maxHeight='none';
+                box.style.height='auto';
+                box.style.overflow='visible';
+            }).catch(()=>{});
+        });
+    });
+}
+function handleOtherUnitSearchInput(){
+    const input=document.getElementById('other-unit-search');
+    const box=document.getElementById('other-unit-list');
+    const favoriteWrap=document.getElementById('favorite-other-unit-wrap');
+    const resultTitle=document.getElementById('other-unit-search-result-title');
+    if(!input || !box) return;
+
+    const q=input.value.trim();
+    clearTimeout(otherUnitSearchTimer);
+
+    favoriteWrap?.classList.remove('hidden');
+
+    if(!q){
+        otherUnits=[];
+        box.innerHTML='';
+        box.classList.add('hidden');
+        resultTitle?.classList.add('hidden');
+        box.style.height='';
+        box.style.maxHeight='';
+        box.style.overflow='';
+        return;
+    }
+
+    resultTitle?.classList.remove('hidden');
+    box.classList.remove('hidden');
+    box.style.height='auto';
+    box.style.maxHeight='none';
+    box.style.overflow='visible';
+
+    otherUnitSearchTimer=setTimeout(async()=>{
+        await searchOtherUnits();
+
+        requestAnimationFrame(()=>{
+            const fullHeight=Math.max(box.scrollHeight,80);
+            box.getAnimations().forEach(a=>a.cancel());
+            box.animate([
+                {maxHeight:'0px',opacity:.25,transform:'translateY(-6px)'},
+                {maxHeight:`${fullHeight}px`,opacity:1,transform:'translateY(0)'}
+            ],{
+                duration:280,
+                easing:'cubic-bezier(.22,1,.36,1)',
+                fill:'both'
+            }).finished.then(()=>{
+                box.style.maxHeight='none';
+                box.style.height='auto';
+                box.style.overflow='visible';
+            }).catch(()=>{});
+        });
+    },250);
+}
+async function searchOtherUnits(){
+    const q=(document.getElementById('other-unit-search')?.value || '').trim();
+    const box=document.getElementById('other-unit-list');
+    const resultTitle=document.getElementById('other-unit-search-result-title');
+
+    document.getElementById('favorite-other-unit-wrap')?.classList.remove('hidden');
+
+    if(!q){
+        otherUnits=[];
+        if(box){
+            box.innerHTML='';
+            box.classList.add('hidden');
+            box.style.height='';
+            box.style.maxHeight='';
+            box.style.overflow='';
+        }
+        resultTitle?.classList.add('hidden');
+        renderFavoriteOtherUnits();
+        return;
+    }
+
+    resultTitle?.classList.remove('hidden');
+
+    let query=sb
+        .from('units')
+        .select('id,unit_name,unit_code')
+        .order('unit_name')
+        .limit(50)
+        .or(`unit_name.ilike.%${q}%,unit_code.ilike.%${q}%`);
+
+    const {data,error}=await query;
+
+    if(error){
+        console.error(error);
+        if(box){
+            box.innerHTML='<div class="text-center py-4 text-xs text-red-400 bg-white rounded-xl border border-red-100">부대 목록을 불러오지 못했습니다.</div>';
+            box.classList.remove('hidden');
+        }
+        return;
+    }
+
+    otherUnits=(data||[]).filter(unit=>unit.id!==currentProfile?.unit_id);
+    renderOtherUnitList(otherUnits);
+}
+function renderOtherUnitList(items){
+    const box=document.getElementById('other-unit-list');
+    if(!box) return;
+    const sorted=sortOtherUnits(items||[]);
+    if(sorted.length===0){
+        box.innerHTML='<div class="text-center py-4 text-xs text-gray-400 bg-gray-50 rounded-xl border border-gray-100">조회할 타부대가 없습니다.</div>';
+        return;
+    }
+    box.innerHTML=sorted.map(unit=>{
+        const fav=isOtherFavorite(unit.id);
+        return `<div onclick="selectOtherUnit('${unit.id}')" class="p-3 bg-gray-50 rounded-xl border border-gray-100 flex justify-between items-center gap-2 active:scale-[.99] transition-all cursor-pointer">
+            <div class="min-w-0">
+                <p class="font-bold text-sm text-gray-900 truncate">${escapeHtml(unit.unit_name)}</p>
+                <p class="text-xs text-[#F28C28] font-bold mt-1">부대코드: ${escapeHtml(unit.unit_code || '')}</p>
+            </div>
+            <button onclick="toggleOtherFavorite('${unit.id}', event)" class="shrink-0 w-10 h-10 rounded-xl ${fav?'bg-yellow-100 text-yellow-500':'bg-white text-gray-300'} border border-gray-100 text-xl font-black flex items-center justify-center" aria-label="즐겨찾기">${fav?'★':'☆'}</button>
+        </div>`;
+    }).join('');
+}
+async function selectOtherUnit(unitId){
+    const unit=otherUnits.find(u=>u.id===unitId) || {id:unitId, unit_name:'선택한 부대', unit_code:''};
+    selectedOtherUnit=unit;
+    document.getElementById('other-unit-title').innerText=`${unit.unit_name}${unit.unit_code ? ' ('+unit.unit_code+')' : ''}`;
+    document.getElementById('other-unit-view-box').classList.remove('hidden');
+    await loadOtherUnitData(unitId);
+    switchOtherView('calendar');
+}
+async function loadOtherUnitData(unitId){
+    const [{data:outingData,error:outingError},{data:profileData,error:profileError}]=await Promise.all([
+        sb.from('outing').select('*').eq('unit_id',unitId).order('start'),
+        sb.from('profiles').select('id,name,phone,role,unit_id,user_approved,approval_status').eq('unit_id',unitId).order('name')
+    ]);
+    if(outingError){console.error(outingError);triggerToast('타부대 출타 정보를 불러오지 못했습니다.');}
+    if(profileError){console.error(profileError);triggerToast('타부대 부대원 정보를 불러오지 못했습니다.');}
+    otherOutData=outingData||[];
+    otherProfiles=profileData||[];
+}
+function getOtherProfile(userId){return otherProfiles.find(p=>p.id===userId) || {};}
+function getOtherDestinationLine(item){
+    const profile=getOtherProfile(item.user_id);
+    const phoneLine=profile.phone?`<p class="text-xs text-gray-500 mt-1 truncate">연락처: ${escapeHtml(profile.phone)}</p>`:'';
+    const destinationLine=item.destination?`<p class="text-xs text-gray-500 mt-1 truncate">행선지: ${escapeHtml(item.destination)}</p>`:'';
+    return phoneLine+destinationLine;
+}
+
+const OTHER_VIEW_ORDER=['calendar','list','weekly','next-weekly'];
+let otherViewAnimating=false;
+let otherViewSwipeReady=false;
+
+function renderOtherViewByType(view){
+    if(view==='calendar') renderOtherCalendar();
+    if(view==='list') renderOtherList();
+    if(view==='weekly') renderOtherWeekly(false);
+    if(view==='next-weekly') renderOtherWeekly(true);
+}
+
+function getActiveOtherView(){
+    const active=OTHER_VIEW_ORDER
+        .map(view=>document.getElementById(`other-view-${view}`))
+        .find(section=>section && !section.classList.contains('hidden'));
+
+    return active ? active.id.replace('other-view-','') : 'calendar';
+}
+
+function updateOtherViewButtons(view){
+    OTHER_VIEW_ORDER.forEach(item=>{
+        const button=document.getElementById(`btn-other-${item}`);
+        if(button){
+            button.className='py-2 rounded-xl font-bold text-xs bg-gray-100 text-gray-600 flex-1';
+        }
+    });
+
+    const active=document.getElementById(`btn-other-${view}`);
+    if(active){
+        active.className='py-2 rounded-xl font-bold text-xs bg-[#F28C28] text-white shadow-xs flex-1';
+    }
+
+    otherView=view;
+}
+
+function getOtherViewDirection(fromView,toView){
+    const fromIndex=OTHER_VIEW_ORDER.indexOf(fromView);
+    const toIndex=OTHER_VIEW_ORDER.indexOf(toView);
+
+    if(fromIndex<0 || toIndex<0 || fromIndex===toIndex) return 0;
+
+    const forward=(toIndex-fromIndex+OTHER_VIEW_ORDER.length)%OTHER_VIEW_ORDER.length;
+    const backward=(fromIndex-toIndex+OTHER_VIEW_ORDER.length)%OTHER_VIEW_ORDER.length;
+
+    return forward<=backward ? 1 : -1;
+}
+
+function switchOtherViewFromButton(view,sourceElement){
+    const current=getActiveOtherView();
+    if(current===view || otherViewAnimating) return;
+
+    animateOtherView(view,getOtherViewDirection(current,view));
+}
+
+function animateOtherView(targetType,direction){
+    const currentView=document.getElementById(`other-view-${getActiveOtherView()}`);
+    const targetView=document.getElementById(`other-view-${targetType}`);
+
+    if(!currentView || !targetView || currentView===targetView || !direction || otherViewAnimating) return;
+
+    renderOtherViewByType(targetType);
+
+    const contentWrap=currentView.parentElement;
+    const currentRect=currentView.getBoundingClientRect();
+    const wrapRect=contentWrap.getBoundingClientRect();
+    const width=Math.max(currentRect.width,1);
+    const swipeGap=12;
+    const previousWrapPosition=contentWrap.style.position;
+    const previousWrapOverflow=contentWrap.style.overflow;
+
+    if(getComputedStyle(contentWrap).position==='static'){
+        contentWrap.style.position='relative';
+    }
+
+    contentWrap.style.overflow='hidden';
+
+    currentView.style.position='relative';
+    currentView.style.zIndex='5';
+    currentView.style.transform='translate3d(0,0,0)';
+    currentView.style.transition='none';
+    currentView.style.willChange='transform';
+    currentView.style.pointerEvents='none';
+
+    const targetClone=targetView.cloneNode(true);
+    targetClone.removeAttribute('id');
+    targetClone.querySelectorAll('[id]').forEach(element=>element.removeAttribute('id'));
+    targetClone.querySelectorAll('input,button,select,textarea,a').forEach(element=>element.tabIndex=-1);
+    targetClone.classList.remove('hidden');
+
+    const overlay=document.createElement('div');
+    overlay.setAttribute('aria-hidden','true');
+
+    Object.assign(overlay.style,{
+        position:'absolute',
+        left:`${currentRect.left-wrapRect.left}px`,
+        top:`${currentRect.top-wrapRect.top}px`,
+        width:`${width}px`,
+        height:`${Math.max(currentRect.height,1)}px`,
+        overflow:'hidden',
+        pointerEvents:'none',
+        zIndex:'5'
+    });
+
+    Object.assign(targetClone.style,{
+        position:'absolute',
+        left:'0',
+        top:'0',
+        width:`${width}px`,
+        minWidth:`${width}px`,
+        maxWidth:`${width}px`,
+        margin:'0',
+        boxSizing:'border-box',
+        pointerEvents:'none',
+        transform:`translate3d(${direction*(width+swipeGap)}px,0,0)`,
+        willChange:'transform'
+    });
+
+    overlay.appendChild(targetClone);
+    contentWrap.appendChild(overlay);
+    otherViewAnimating=true;
+
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{
+        const duration=220;
+        const easing='cubic-bezier(.22,.61,.36,1)';
+
+        currentView.style.transition=`transform ${duration}ms ${easing}`;
+        targetClone.style.transition=`transform ${duration}ms ${easing}`;
+        currentView.style.transform=`translate3d(${-direction*(width+swipeGap)}px,0,0)`;
+        targetClone.style.transform='translate3d(0,0,0)';
+    }));
+
+    let finished=false;
+
+    const done=()=>{
+        if(finished) return;
+        finished=true;
+
+        overlay.remove();
+
+        currentView.style.position='';
+        currentView.style.zIndex='';
+        currentView.style.transform='';
+        currentView.style.transition='';
+        currentView.style.willChange='';
+        currentView.style.pointerEvents='';
+
+        currentView.classList.add('hidden');
+        targetView.classList.remove('hidden');
+
+        contentWrap.style.position=previousWrapPosition;
+        contentWrap.style.overflow=previousWrapOverflow;
+
+        updateOtherViewButtons(targetType);
+        otherViewAnimating=false;
+    };
+
+    targetClone.addEventListener('transitionend',done,{once:true});
+    setTimeout(done,300);
+}
+
+function initOtherViewSwipe(){
+    if(otherViewSwipeReady) return;
+
+    const area=document.getElementById('other-unit-view-box');
+    if(!area) return;
+
+    otherViewSwipeReady=true;
+
+    let startX=0;
+    let startY=0;
+    let lastX=0;
+    let lastTime=0;
+    let velocityX=0;
+    let tracking=false;
+    let axisLocked=null;
+    let dragPrepared=false;
+    let currentView=null;
+    let targetView=null;
+    let targetClone=null;
+    let overlay=null;
+    let contentWrap=null;
+    let targetType='';
+    let direction=0;
+    let width=1;
+    let previousWrapPosition='';
+    let previousWrapOverflow='';
+    const swipeGap=12;
+
+    function clearDrag(showTarget){
+        overlay?.remove();
+        overlay=null;
+
+        if(currentView){
+            currentView.style.position='';
+            currentView.style.zIndex='';
+            currentView.style.transform='';
+            currentView.style.transition='';
+            currentView.style.willChange='';
+            currentView.style.pointerEvents='';
+        }
+
+        if(currentView && targetView){
+            if(showTarget){
+                currentView.classList.add('hidden');
+                targetView.classList.remove('hidden');
+                updateOtherViewButtons(targetType);
+            }else{
+                currentView.classList.remove('hidden');
+                targetView.classList.add('hidden');
+            }
+        }
+
+        if(contentWrap){
+            contentWrap.style.position=previousWrapPosition;
+            contentWrap.style.overflow=previousWrapOverflow;
+        }
+
+        otherViewAnimating=false;
+        dragPrepared=false;
+        currentView=null;
+        targetView=null;
+        targetClone=null;
+        contentWrap=null;
+    }
+
+    function prepareDrag(deltaX){
+        const currentType=getActiveOtherView();
+        const currentIndex=OTHER_VIEW_ORDER.indexOf(currentType);
+
+        if(currentIndex<0) return false;
+
+        direction=deltaX<0 ? 1 : -1;
+        targetType=OTHER_VIEW_ORDER[(currentIndex+direction+OTHER_VIEW_ORDER.length)%OTHER_VIEW_ORDER.length];
+
+        currentView=document.getElementById(`other-view-${currentType}`);
+        targetView=document.getElementById(`other-view-${targetType}`);
+
+        if(!currentView || !targetView || currentView===targetView) return false;
+
+        renderOtherViewByType(targetType);
+
+        contentWrap=currentView.parentElement;
+        const currentRect=currentView.getBoundingClientRect();
+        const wrapRect=contentWrap.getBoundingClientRect();
+        width=Math.max(currentRect.width,1);
+
+        previousWrapPosition=contentWrap.style.position;
+        previousWrapOverflow=contentWrap.style.overflow;
+
+        if(getComputedStyle(contentWrap).position==='static'){
+            contentWrap.style.position='relative';
+        }
+
+        contentWrap.style.overflow='hidden';
+
+        Object.assign(currentView.style,{
+            position:'relative',
+            zIndex:'5',
+            transform:'translate3d(0,0,0)',
+            transition:'none',
+            willChange:'transform',
+            pointerEvents:'none'
+        });
+
+        targetClone=targetView.cloneNode(true);
+        targetClone.removeAttribute('id');
+        targetClone.querySelectorAll('[id]').forEach(element=>element.removeAttribute('id'));
+        targetClone.querySelectorAll('input,button,select,textarea,a').forEach(element=>element.tabIndex=-1);
+        targetClone.classList.remove('hidden');
+
+        overlay=document.createElement('div');
+        overlay.setAttribute('aria-hidden','true');
+
+        Object.assign(overlay.style,{
+            position:'absolute',
+            left:`${currentRect.left-wrapRect.left}px`,
+            top:`${currentRect.top-wrapRect.top}px`,
+            width:`${width}px`,
+            height:`${Math.max(currentRect.height,1)}px`,
+            overflow:'hidden',
+            pointerEvents:'none',
+            zIndex:'5'
+        });
+
+        Object.assign(targetClone.style,{
+            position:'absolute',
+            left:'0',
+            top:'0',
+            width:`${width}px`,
+            minWidth:`${width}px`,
+            maxWidth:`${width}px`,
+            margin:'0',
+            boxSizing:'border-box',
+            pointerEvents:'none',
+            transition:'none',
+            willChange:'transform',
+            transform:`translate3d(${direction*(width+swipeGap)}px,0,0)`
+        });
+
+        overlay.appendChild(targetClone);
+        contentWrap.appendChild(overlay);
+
+        otherViewAnimating=true;
+        dragPrepared=true;
+        return true;
+    }
+
+    function moveViews(deltaX){
+        if(!dragPrepared || !currentView || !targetClone) return;
+
+        const clamped=Math.max(-width,Math.min(width,deltaX));
+        currentView.style.transform=`translate3d(${clamped}px,0,0)`;
+        targetClone.style.transform=`translate3d(${direction*(width+swipeGap)+clamped}px,0,0)`;
+    }
+
+    function settleViews(complete){
+        if(!dragPrepared || !currentView || !targetClone) return;
+
+        const duration=complete ? 220 : 180;
+        const easing='cubic-bezier(.22,.61,.36,1)';
+
+        currentView.style.transition=`transform ${duration}ms ${easing}`;
+        targetClone.style.transition=`transform ${duration}ms ${easing}`;
+
+        requestAnimationFrame(()=>{
+            if(complete){
+                currentView.style.transform=`translate3d(${-direction*(width+swipeGap)}px,0,0)`;
+                targetClone.style.transform='translate3d(0,0,0)';
+            }else{
+                currentView.style.transform='translate3d(0,0,0)';
+                targetClone.style.transform=`translate3d(${direction*(width+swipeGap)}px,0,0)`;
+            }
+        });
+
+        let finished=false;
+
+        const done=()=>{
+            if(finished) return;
+            finished=true;
+            clearDrag(complete);
+        };
+
+        targetClone.addEventListener('transitionend',done,{once:true});
+        setTimeout(done,duration+80);
+    }
+
+    area.addEventListener('touchstart',event=>{
+        if(hasOpenBlockingOverlay() || otherViewAnimating || event.touches.length!==1) return;
+        if(event.target.closest('input,textarea,select,button,a,[contenteditable="true"]')) return;
+
+        const touch=event.touches[0];
+        startX=lastX=touch.clientX;
+        startY=touch.clientY;
+        lastTime=performance.now();
+        velocityX=0;
+        tracking=true;
+        axisLocked=null;
+        dragPrepared=false;
+
+        event.stopPropagation();
+    },{passive:true});
+
+    area.addEventListener('touchmove',event=>{
+        if(!tracking || event.touches.length!==1) return;
+
+        const touch=event.touches[0];
+        const deltaX=touch.clientX-startX;
+        const deltaY=touch.clientY-startY;
+        const absX=Math.abs(deltaX);
+        const absY=Math.abs(deltaY);
+
+        if(!axisLocked){
+            if(absX<8 && absY<8) return;
+
+            axisLocked=absX>absY*1.15 ? 'x' : 'y';
+
+            if(axisLocked==='y'){
+                tracking=false;
+                return;
+            }
+        }
+
+        if(axisLocked!=='x') return;
+
+        event.preventDefault();
+        event.stopPropagation();
+
+        if(!dragPrepared && !prepareDrag(deltaX)){
+            tracking=false;
+            return;
+        }
+
+        const now=performance.now();
+        const elapsed=Math.max(now-lastTime,1);
+        velocityX=(touch.clientX-lastX)/elapsed;
+        lastX=touch.clientX;
+        lastTime=now;
+
+        moveViews(deltaX);
+    },{passive:false});
+
+    area.addEventListener('touchend',event=>{
+        if(!tracking) return;
+
+        tracking=false;
+        event.stopPropagation();
+
+        if(!dragPrepared || event.changedTouches.length!==1) return;
+
+        const deltaX=event.changedTouches[0].clientX-startX;
+        const expectedDirection=Math.sign(deltaX)===-direction;
+        const passedDistance=Math.abs(deltaX)>=width*.24;
+        const passedVelocity=Math.abs(velocityX)>=.45;
+
+        settleViews(expectedDirection && (passedDistance || passedVelocity));
+    },{passive:true});
+
+    area.addEventListener('touchcancel',event=>{
+        tracking=false;
+        event.stopPropagation();
+
+        if(dragPrepared){
+            settleViews(false);
+        }
+    },{passive:true});
+}
+
+function switchOtherView(view){
+    otherView=view;
+
+    ['calendar','list','weekly','next-weekly'].forEach(v=>{
+        const button=document.getElementById(`btn-other-${v}`);
+        const section=document.getElementById(`other-view-${v}`);
+
+        if(button){
+            button.className='py-2 rounded-xl font-bold text-xs bg-gray-100 text-gray-600 flex-1';
+        }
+
+        section?.classList.add('hidden');
+    });
+
+    const activeButton=document.getElementById(`btn-other-${view}`);
+    const activeSection=document.getElementById(`other-view-${view}`);
+
+    if(activeButton){
+        activeButton.className='py-2 rounded-xl font-bold text-xs bg-[#F28C28] text-white shadow-xs flex-1';
+    }
+
+    activeSection?.classList.remove('hidden');
+    renderOtherViewByType(view);
+}
+function changeOtherMonth(offset){
+    otherMonth+=offset;
+    if(otherMonth>11){otherMonth=0;otherYear++;}
+    if(otherMonth<0){otherMonth=11;otherYear--;}
+    renderOtherCalendar();
+}
+function renderOtherCalendar(){
+    const grid=document.getElementById('other-calendar-grid');
+    const title=document.getElementById('other-calendar-title');
+    if(!grid||!title) return;
+    grid.innerHTML='';
+    title.innerText=`${otherYear}년 ${String(otherMonth+1).padStart(2,'0')}월`;
+    ['월','화','수','목','금','토','일'].forEach((day,index)=>{
+        const div=document.createElement('div');
+        div.className='text-center text-xs font-bold text-gray-400 mb-2';
+        if(index===5) div.className='text-center text-xs font-bold text-blue-600 mb-2';
+        if(index===6) div.className='text-center text-xs font-bold text-red-500 mb-2';
+        div.innerText=day;
+        grid.appendChild(div);
+    });
+    const sortedData=[...otherOutData].sort((a,b)=>new Date(a.start)-new Date(b.start));
+    const slotMap=new Map();
+    sortedData.forEach(item=>{
+        const usedSlots=new Set();
+        sortedData.forEach(other=>{
+            if(slotMap.has(other.id) && !(item.end<other.start || item.start>other.end)) usedSlots.add(slotMap.get(other.id));
+        });
+        for(let s=0;s<20;s++){if(!usedSlots.has(s)){slotMap.set(item.id,s);break;}}
+    });
+    const firstDay=new Date(otherYear,otherMonth,1).getDay();
+    const adjustedFirstDay=(firstDay===0)?6:firstDay-1;
+    const lastDate=new Date(otherYear,otherMonth+1,0).getDate();
+    const prevLastDate=new Date(otherYear,otherMonth,0).getDate();
+    for(let i=adjustedFirstDay;i>0;i--){
+        const dayDiv=document.createElement('div');
+        dayDiv.className='text-gray-300 min-h-[85px] p-1 border-t border-gray-100 select-none';
+        dayDiv.innerText=prevLastDate-i+1;
+        grid.appendChild(dayDiv);
+    }
+    for(let date=1;date<=lastDate;date++){
+        const dayDiv=document.createElement('div');
+        dayDiv.className='min-h-[85px] h-auto p-1 border-t border-gray-100 flex flex-col justify-start pb-2';
+        const dateNo=document.createElement('div');
+        dateNo.className='font-semibold text-xs text-left mb-1 px-1';
+        dateNo.innerText=date;
+        const dow=new Date(otherYear,otherMonth,date).getDay();
+        if(dow===0) dateNo.classList.add('text-red-500');
+        if(dow===6) dateNo.classList.add('text-blue-600');
+        dayDiv.appendChild(dateNo);
+        const checkStr=`${otherYear}-${String(otherMonth+1).padStart(2,'0')}-${String(date).padStart(2,'0')}`;
+        if(checkStr===getTodayString()){
+            dayDiv.classList.add('bg-emerald-50','ring-2','ring-inset','ring-emerald-500','rounded-lg');
+            dateNo.classList.remove('text-red-500','text-blue-600');
+            dateNo.classList.add('text-emerald-700','font-black');
+        }
+        const todays=otherOutData.filter(item=>checkStr>=item.start && checkStr<=item.end).sort((a,b)=>(slotMap.get(a.id)||0)-(slotMap.get(b.id)||0));
+        let currentSlot=0;
+        todays.forEach(item=>{
+            const itemSlot=slotMap.get(item.id)||0;
+            while(currentSlot<itemSlot){const empty=document.createElement('div'); empty.className='h-[16px] mb-0.5 w-full'; dayDiv.appendChild(empty); currentSlot++;}
+            const row=document.createElement('div'); row.className='h-[16px] mb-0.5 w-full';
+            const bar=document.createElement('div'); bar.className=`schedule-bar color-${item.type}`;
+            const isOvernightEnd=(item.type==='overnight' && checkStr===item.end);
+            if((checkStr===item.start || checkStr===item.end) && !isOvernightEnd) bar.innerText=item.name || getOtherProfile(item.user_id).name || '';
+            if(item.start===item.end) bar.classList.add('bar-single');
+            else if(checkStr===item.start) bar.classList.add('bar-start');
+            else if(checkStr===item.end) bar.classList.add('bar-end');
+            else bar.classList.add('bar-mid');
+            row.appendChild(bar); dayDiv.appendChild(row); currentSlot++;
+        });
+        grid.appendChild(dayDiv);
+    }
+}
+function renderOtherCard(item, tone='white'){
+    const typeBgClasses={weekday:'color-weekday',weekend:'color-weekend',overnight:'color-overnight',vacation:'color-vacation'};
+    const typeNames={weekday:'평일외출',weekend:'주말외출',overnight:'외박',vacation:'휴가'};
+    const bg=tone==='amber'?'bg-amber-50 border-amber-200':tone==='blue'?'bg-blue-50 border-blue-200':'bg-white border-gray-100';
+
+    let statusLabel=typeNames[item.type] || '';
+
+    if(tone==='amber'){
+        const todayStr=getTodayString();
+
+        if(item.type==='vacation'){
+            statusLabel=item.start===todayStr ? '휴가출발' : '휴가복귀';
+        }else if(item.type==='overnight'){
+            statusLabel=item.start===todayStr ? '외박출발' : '외박복귀';
+        }else if(item.type==='weekday'){
+            statusLabel='평일외출';
+        }else if(item.type==='weekend'){
+            statusLabel='주말외출';
+        }
+    }
+
+    const div=document.createElement('div');
+    div.className=`p-4 ${bg} rounded-xl shadow-xs flex justify-between items-center text-sm mb-2 border`;
+    div.innerHTML=`
+        <div class="min-w-0 mr-2">
+            <p class="font-bold text-gray-900 text-base truncate">${escapeHtml(item.name || getOtherProfile(item.user_id).name || '')}</p>
+            ${getOtherDestinationLine(item)}
+            <p class="text-xs text-gray-500 mt-1 truncate">${(item.type==='weekday'||item.type==='weekend')?'일시: '+item.start:'기간: '+item.start+' ~ '+item.end}</p>
+        </div>
+        <span class="px-3 py-1 rounded-lg text-xs font-black text-white ${typeBgClasses[item.type]}" style="color:#fff!important;">${statusLabel}</span>`;
+    return div;
+}
+function renderOtherList(){
+    const box=document.getElementById('other-view-list');
+    const todayStr=getTodayString();
+    const base=otherOutData.filter(item=>item.end>=todayStr);
+    box.innerHTML=`<div><h3 class="font-extrabold text-emerald-700 text-sm mb-2 flex items-center gap-1"><span class="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>&lt;오늘의 출타&gt;</h3><div id="other-today-list" class="space-y-2"></div></div><div><h3 class="font-extrabold text-blue-700 text-sm mb-2 flex items-center gap-1"><span class="inline-block w-2 h-2 rounded-full bg-blue-500"></span>&lt;현재 진행 중인 출타&gt;</h3><div id="other-current-list" class="space-y-2"></div></div><hr class="border-gray-200"><div><h3 class="font-bold text-gray-700 mb-3 text-sm">전체 출타 정보 명단</h3><div id="other-integrated-list" class="space-y-2"></div></div>`;
+    const todayBox=document.getElementById('other-today-list');
+    const currentBox=document.getElementById('other-current-list');
+    const integratedBox=document.getElementById('other-integrated-list');
+    const todayItems=base.filter(item=>item.start===todayStr || item.end===todayStr);
+    const currentItems=base.filter(item=>item.start<=todayStr && item.end>=todayStr);
+    todayItems.forEach(item=>todayBox.appendChild(renderOtherCard(item,'amber')));
+    currentItems.forEach(item=>currentBox.appendChild(renderOtherCard(item,'blue')));
+    if(todayItems.length===0) todayBox.innerHTML='<div class="text-center py-4 text-xs text-gray-400 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">오늘 변동되는 출타자가 없습니다.</div>';
+    if(currentItems.length===0) currentBox.innerHTML='<div class="text-center py-4 text-xs text-gray-400 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">현재 부재 중인 인원이 없습니다.</div>';
+    if(base.length===0) integratedBox.innerHTML='<div class="text-center py-12 text-sm text-gray-400">진행 중인 출타가 없습니다.</div>';
+    else [...base].sort((a,b)=>a.start.localeCompare(b.start)).forEach(item=>integratedBox.appendChild(renderOtherCard(item)));
+}
+function otherWeeklyRange(next=false){
+    const now=new Date(); const day=now.getDay();
+    const diff=next ? (day===0?1:8-day) : now.getDate()-day+(day===0?-6:1)-now.getDate();
+    const start=new Date(now); start.setDate(now.getDate()+diff);
+    const end=new Date(start); end.setDate(start.getDate()+6);
+    return {start:toDateStr(start), end:toDateStr(end)};
+}
+function renderOtherWeekly(next=false){
+    const box=document.getElementById(next?'other-view-next-weekly':'other-view-weekly');
+    const range=otherWeeklyRange(next);
+    const title=next?'다음 주 출타 현황':'이번 주 출타 현황';
+    const data=otherOutData.filter(item=>item.start>=range.start && item.start<=range.end).sort((a,b)=>a.start.localeCompare(b.start));
+    box.innerHTML=`<h3 class="font-bold text-sm mb-3 px-2">${title}</h3><div class="space-y-2"></div>`;
+    const list=box.querySelector('.space-y-2');
+    if(data.length===0){list.innerHTML=`<div class="text-center py-12 text-sm text-gray-400 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">${next?'다음주':'이번주'}에 진행 예정인 출타가 없습니다.</div>`; return;}
+    data.forEach(item=>list.appendChild(renderOtherCard(item)));
+}
+
+document.addEventListener('click', closeRateSummary);
+window.addEventListener('scroll', closeRateSummary, true);
+window.addEventListener('resize', closeRateSummary);
+
+
+
+
+const ADMIN_NOTIFICATION_UI_KEY = 'adminNotificationUiEnabled';
+
+function urlBase64ToUint8Array(base64String){
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding)
+        .replace(/-/g, '+')
+        .replace(/_/g, '/');
+
+    const rawData = atob(base64);
+    return Uint8Array.from([...rawData].map(char => char.charCodeAt(0)));
+}
+
+function applicationServerKeyMatches(subscription, vapidPublicKey){
+    const currentKey = subscription?.options?.applicationServerKey;
+    if(!currentKey) return false;
+
+    const expectedKey = urlBase64ToUint8Array(vapidPublicKey);
+    const actualKey = new Uint8Array(currentKey);
+
+    if(actualKey.length !== expectedKey.length) return false;
+    return actualKey.every((value, index) => value === expectedKey[index]);
+}
+
+function renderAdminNotificationSwitch(enabled, statusText = ''){
+    const switchButton = document.getElementById('admin-notification-switch');
+    const knob = document.getElementById('admin-notification-switch-knob');
+    const status = document.getElementById('admin-notification-status');
+    if(!switchButton || !knob || !status) return;
+
+    switchButton.setAttribute('aria-checked', enabled ? 'true' : 'false');
+    switchButton.classList.toggle('bg-[#F28C28]', enabled);
+    switchButton.classList.toggle('bg-gray-300', !enabled);
+    knob.classList.toggle('translate-x-5', enabled);
+
+    status.textContent = statusText || (enabled ? '알림 켜짐' : '알림 꺼짐');
+    status.classList.toggle('text-[#F28C28]', enabled);
+    status.classList.toggle('text-gray-400', !enabled);
+}
+
+function setAdminNotificationSwitchBusy(isBusy){
+    const switchButton = document.getElementById('admin-notification-switch');
+    if(!switchButton) return;
+
+    switchButton.disabled = isBusy;
+    switchButton.classList.toggle('opacity-50', isBusy);
+    switchButton.classList.toggle('cursor-wait', isBusy);
+}
+
+async function getPushServiceWorkerRegistration(){
+    if(!('serviceWorker' in navigator)){
+        throw new Error('이 브라우저는 서비스 워커를 지원하지 않습니다.');
+    }
+
+    await navigator.serviceWorker.register('./service-worker.js');
+    return await navigator.serviceWorker.ready;
+}
+
+async function getCurrentPushSubscription(){
+    const registration = await getPushServiceWorkerRegistration();
+    const subscription = await registration.pushManager.getSubscription();
+    return { registration, subscription };
+}
+
+function getPushSubscriptionKeys(subscription){
+    const json = subscription.toJSON();
+
+    return {
+        endpoint: subscription.endpoint,
+        p256dh: json.keys?.p256dh || '',
+        auth_key: json.keys?.auth || ''
+    };
+}
+
+async function savePushSubscription(subscription, enabled){
+    if(!currentUser?.id){
+        throw new Error('로그인 정보를 확인할 수 없습니다.');
+    }
+
+    if(!currentProfile?.unit_id){
+        throw new Error('소속 부대를 먼저 설정해주세요.');
+    }
+
+    const keys = getPushSubscriptionKeys(subscription);
+
+    if(!keys.endpoint || !keys.p256dh || !keys.auth_key){
+        throw new Error('푸시 구독 키를 가져오지 못했습니다.');
+    }
+
+    const { error } = await sb
+        .from('push_subscriptions')
+        .upsert({
+            user_id: currentUser.id,
+            unit_id: currentProfile.unit_id,
+            endpoint: keys.endpoint,
+            p256dh: keys.p256dh,
+            auth_key: keys.auth_key,
+            is_enabled: enabled
+        }, {
+            onConflict: 'user_id'
+        });
+
+    if(error) throw error;
+}
+
+async function setStoredPushSubscriptionEnabled(endpoint, enabled){
+    if(!currentUser?.id || !endpoint) return;
+
+    const { error } = await sb
+        .from('push_subscriptions')
+        .update({
+            is_enabled: enabled,
+            unit_id: currentProfile?.unit_id || null
+        })
+        .eq('user_id', currentUser.id)
+        .eq('endpoint', endpoint);
+
+    if(error) throw error;
+}
+
+async function syncAdminNotificationSwitch(){
+    if(!window.isSecureContext){
+        renderAdminNotificationSwitch(false, 'HTTPS 환경에서만 사용할 수 있습니다');
+        return;
+    }
+
+    if(
+        !('Notification' in window) ||
+        !('PushManager' in window) ||
+        !('serviceWorker' in navigator)
+    ){
+        renderAdminNotificationSwitch(false, '이 브라우저에서는 알림을 지원하지 않습니다');
+        return;
+    }
+
+    if(Notification.permission === 'denied'){
+        renderAdminNotificationSwitch(false, '브라우저 설정에서 알림 허용이 필요합니다');
+        return;
+    }
+
+    try{
+        const { subscription } = await getCurrentPushSubscription();
+
+        if(!subscription || !currentUser?.id){
+            localStorage.setItem(ADMIN_NOTIFICATION_UI_KEY, '0');
+            renderAdminNotificationSwitch(false, '알림 꺼짐');
+            return;
+        }
+
+        const { data, error } = await sb
+            .from('push_subscriptions')
+            .select('is_enabled')
+            .eq('user_id', currentUser.id)
+            .eq('endpoint', subscription.endpoint)
+            .maybeSingle();
+
+        if(error) throw error;
+
+        const enabled = data?.is_enabled === true;
+        localStorage.setItem(ADMIN_NOTIFICATION_UI_KEY, enabled ? '1' : '0');
+        renderAdminNotificationSwitch(enabled, enabled ? '알림 켜짐' : '알림 꺼짐');
+    }catch(error){
+        console.error('알림 상태 확인 실패:', error);
+        renderAdminNotificationSwitch(false, '알림 상태를 확인하지 못했습니다');
+    }
+}
+
+async function enableAdminNotifications(){
+    if(!window.isSecureContext){
+        throw new Error('HTTPS 환경에서만 알림을 사용할 수 있습니다.');
+    }
+
+    if(
+        !('Notification' in window) ||
+        !('PushManager' in window) ||
+        !('serviceWorker' in navigator)
+    ){
+        throw new Error('이 브라우저에서는 푸시 알림을 지원하지 않습니다.');
+    }
+
+    if(typeof VAPID_PUBLIC_KEY === 'undefined' || !VAPID_PUBLIC_KEY){
+        throw new Error('VAPID 공개키가 설정되지 않았습니다.');
+    }
+
+    let permission = Notification.permission;
+
+    if(permission === 'default'){
+        permission = await Notification.requestPermission();
+    }
+
+    if(permission !== 'granted'){
+        throw new Error(
+            permission === 'denied'
+                ? '브라우저 설정에서 알림 권한을 허용해주세요.'
+                : '알림 권한이 허용되지 않았습니다.'
+        );
+    }
+
+    const { registration, subscription: existingSubscription } =
+        await getCurrentPushSubscription();
+
+    let subscription = existingSubscription;
+
+    // 기존 구독이 다른 VAPID 공개키로 만들어졌다면 서버의 개인키와 맞지 않아
+    // 큐 행은 쌓여도 실제 Web Push 전송이 실패한다. 이 경우 구독을 새로 만든다.
+    if(subscription && !applicationServerKeyMatches(subscription, VAPID_PUBLIC_KEY)){
+        await subscription.unsubscribe();
+        subscription = null;
+    }
+
+    if(!subscription){
+        subscription = await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+        });
+    }
+
+    await savePushSubscription(subscription, true);
+
+    localStorage.setItem(ADMIN_NOTIFICATION_UI_KEY, '1');
+    renderAdminNotificationSwitch(true, '알림 켜짐');
+}
+
+async function disableAdminNotifications(){
+    const { subscription } = await getCurrentPushSubscription();
+
+    if(subscription){
+        await setStoredPushSubscriptionEnabled(subscription.endpoint, false);
+    }
+
+    localStorage.setItem(ADMIN_NOTIFICATION_UI_KEY, '0');
+    renderAdminNotificationSwitch(false, '알림 꺼짐');
+}
+
+async function toggleAdminNotificationSwitch(){
+    const switchButton = document.getElementById('admin-notification-switch');
+    const currentlyEnabled =
+        switchButton?.getAttribute('aria-checked') === 'true';
+
+    setAdminNotificationSwitchBusy(true);
+
+    try{
+        if(currentlyEnabled){
+            await disableAdminNotifications();
+        }else{
+            await enableAdminNotifications();
+        }
+    }catch(error){
+        console.error('관리자 알림 설정 실패:', error);
+        await syncAdminNotificationSwitch();
+
+        const status = document.getElementById('admin-notification-status');
+        if(status){
+            status.textContent = error?.message || '알림 설정에 실패했습니다';
+            status.classList.remove('text-[#F28C28]');
+            status.classList.add('text-red-500');
+        }
+    }finally{
+        setAdminNotificationSwitchBusy(false);
+    }
+}
+
+function openSettingsModal(sourceElement=null){
+    syncAdminNotificationSwitch();animatePopupFromSource(document.getElementById('settings-modal'),sourceElement);}
+function closeSettingsModal(){closePopupDown(document.getElementById('settings-modal'));}
+function showConfirmToast(message, confirmText='확인', cancelText='취소', sourceElement=null){
+    return new Promise(resolve=>{
+        const existing=document.getElementById('custom-confirm-toast');if(existing)existing.remove();
+        const toast=document.createElement('div');toast.id='custom-confirm-toast';toast.className='fixed inset-0 z-[20000] flex items-center justify-center bg-black/60 p-6';toast.style.opacity='0';
+        toast.innerHTML=`<div class="bg-white rounded-2xl p-6 text-center shadow-2xl max-w-xs w-full"><div class="w-12 h-12 mx-auto mb-4 rounded-full bg-red-50 text-red-500 flex items-center justify-center text-2xl font-black">!</div><p class="font-bold text-lg whitespace-pre-line mb-5">${escapeHtml(message)}</p><div class="flex gap-2"><button id="confirm-toast-cancel" class="flex-1 py-2.5 bg-gray-100 text-gray-600 rounded-xl font-bold text-sm">${escapeHtml(cancelText)}</button><button id="confirm-toast-ok" class="flex-1 py-2.5 bg-red-500 text-white rounded-xl font-bold text-sm">${escapeHtml(confirmText)}</button></div></div>`;
+        document.body.appendChild(toast);const panel=toast.firstElementChild;
+        if(sourceElement){const r=sourceElement.getBoundingClientRect(),p=panel.getBoundingClientRect();const tx=r.left+r.width/2-(p.left+p.width/2),ty=r.top+r.height/2-(p.top+p.height/2);panel.animate([{transform:`translate(${tx}px,${ty}px) scale(.15)`,opacity:.1},{transform:'translate(0,0) scale(1)',opacity:1}],{duration:330,easing:'cubic-bezier(.22,1,.36,1)',fill:'both'});}
+        else panel.animate([{transform:'translateY(28px) scale(.98)',opacity:0},{transform:'translateY(0) scale(1)',opacity:1}],{duration:320,easing:'cubic-bezier(.22,1,.36,1)',fill:'both'});
+        toast.animate([{opacity:0},{opacity:1}],{duration:220,fill:'both'});
+        let closing=false;const close=result=>{if(closing)return;closing=true;panel.animate([{transform:'translateY(0)',opacity:1},{transform:'translateY(56px)',opacity:0}],{duration:230,easing:'ease-in',fill:'both'});toast.animate([{opacity:1},{opacity:0}],{duration:230,fill:'both'});setTimeout(()=>{toast.remove();resolve(result);},230);};
+        toast.querySelector('#confirm-toast-cancel').onclick=()=>close(false);toast.querySelector('#confirm-toast-ok').onclick=()=>close(true);
+    });
+}
+
+function getProfileRoleForHelp(){
+    return currentProfile?.role || 'user';
+}
+function openProfileEditModal(sourceElement=null){
+    const isAdmin = currentProfile?.role === 'admin';
+    document.getElementById('profile-edit-name').value = currentProfile?.name || currentProfile?.display_name || '';
+    document.getElementById('profile-edit-phone').value = currentProfile?.phone || '';
+    document.getElementById('profile-edit-password').value = '';
+    const positionWrap = document.getElementById('profile-edit-position-wrap');
+    if(positionWrap){
+        positionWrap.classList.toggle('hidden', !isAdmin);
+        document.getElementById('profile-edit-position').value = currentProfile?.position || '';
+        if(isAdmin) loadMyAdminPosition();
+    }
+    animatePopupFromSource(document.getElementById('profile-edit-modal'),sourceElement);
+}
+function closeProfileEditModal(){closePopupDown(document.getElementById('profile-edit-modal'));}
+async function loadMyAdminPosition(){
+    // 직책은 is_admin이 아니라 profiles.position에서 관리합니다.
+    if(!currentUser || currentProfile?.role !== 'admin') return;
+    document.getElementById('profile-edit-position').value = currentProfile?.position || '';
+}
+async function saveProfileEdit(){
+    if(!currentUser || !currentProfile){
+        triggerToast('로그인 정보를 찾을 수 없습니다.');
+        return;
+    }
+    const name=document.getElementById('profile-edit-name').value.trim();
+    const phone=document.getElementById('profile-edit-phone').value.trim();
+    const password=document.getElementById('profile-edit-password').value;
+    const isAdmin=currentProfile?.role==='admin';
+    const positionEl=document.getElementById('profile-edit-position');
+    const position=isAdmin && positionEl ? positionEl.value.trim() : '';
+    if(!name || !phone || !password){
+        triggerToast('이름, 휴대폰번호, 비밀번호를 모두 입력해주세요.');
+        return;
+    }
+    if(isAdmin && !position){
+        triggerToast('직책을 입력해주세요.');
+        return;
+    }
+    const loginEmail=currentUser.email;
+    const {error:verifyError}=await sb.auth.signInWithPassword({email:loginEmail,password});
+    if(verifyError){
+        triggerToast('비밀번호가 일치하지 않습니다.');
+        return;
+    }
+    const profileUpdates={name, phone};
+    if(isAdmin){
+        profileUpdates.position = position;
+    }
+
+    const {error:profileError}=await sb.from('profiles').update(profileUpdates).eq('id',currentUser.id);
+    if(profileError){
+        triggerToast('개인정보 수정 실패\n'+profileError.message);
+        return;
+    }
+    const authUpdate={data:{display_name:name, phone}};
+    const {data:authData,error:authError}=await sb.auth.updateUser(authUpdate);
+    if(authError){
+        triggerToast('프로필 정보 저장 중 오류가 발생했습니다.\n'+authError.message);
+        currentProfile={...currentProfile,...profileUpdates, ...(isAdmin?{position}: {})};
+        currentUserName = typeof getCurrentUserName === 'function' ? getCurrentUserName() : name;
+        return;
+    }
+    if(authData?.user) currentUser=authData.user;
+    currentProfile={...currentProfile,...profileUpdates, ...(isAdmin?{position}: {})};
+    currentUserName = typeof getCurrentUserName === 'function' ? getCurrentUserName() : name;
+    closeProfileEditModal();
+    triggerToast('개인정보가 저장되었습니다.');
+    if(typeof updateTitle === 'function') updateTitle();
+    if(typeof renderActiveView === 'function') renderActiveView();
+    if(typeof renderCurrentTab === 'function') renderCurrentTab();
+}
+function openHelpModal(sourceElement=null){
+    const role=getProfileRoleForHelp();
+    const isAdmin=role==='admin';
+    const help=document.getElementById('help-content');
+    help.innerHTML = isAdmin ? `
+        <div class="p-4 bg-orange-50 rounded-2xl border border-orange-100">
+            <h4 class="font-black text-[#F28C28] mb-2">관리자 화면 전체 안내</h4>
+            <p>관리자는 소속 부대의 출타 현황을 확인하고, 부대원 가입 승인, 부대 정보 관리, 출타율 확인을 할 수 있습니다. 설정의 개인정보 수정은 현재 비밀번호 확인 후 저장됩니다.</p>
+        </div>
+        <div><h4 class="font-black mb-1">출타 탭</h4><p>달력, 상세, 이번주, 다음주 화면으로 부대원의 출타를 확인합니다. 관리자 화면에서는 부대원 출타를 길게 눌러 삭제할 수 있지만, 임의 수정은 하지 않도록 구성되어 있습니다.</p></div>
+        <div><h4 class="font-black mb-1">출타율 달력</h4><p>부대원 수 대비 해당 날짜에 출타 중인 인원의 비율을 달력에 표시합니다. 전체 출타 또는 휴가만 기준으로 전환할 수 있고, 비율이 높을수록 더 진한 색으로 표시됩니다.</p></div>
+        <div><h4 class="font-black mb-1">출타율 상세</h4><p>날짜별 출타율을 목록으로 확인합니다. 각 날짜의 휴가자와 휴가 외 출타자를 버튼으로 나누어 볼 수 있어, 당일 인원 공백을 빠르게 확인할 수 있습니다.</p></div>
+        <div><h4 class="font-black mb-1">부대원 관리</h4><p>가입 희망자를 승인하거나 반려합니다. 승인된 인원은 부대원 목록에 포함되고 출타율 계산 대상이 됩니다. 반려된 인원은 다시 부대코드로 재신청할 수 있습니다.</p></div>
+        <div><h4 class="font-black mb-1">부대 수정</h4><p>관리자가 소속 부대를 검색해 가입하거나, 새 부대를 생성하고, 부대명을 수정하거나 삭제 신청을 할 수 있습니다. 삭제 신청은 즉시 삭제가 아니라 개발자 확인 절차를 거치도록 설계되어 있습니다.</p></div>
+        <div><h4 class="font-black mb-1">타부대 조회</h4><p>다른 부대를 검색하여 달력, 상세, 이번주, 다음주 출타 현황을 조회합니다. 이 화면은 오로지 조회 전용이므로 삭제나 수정 기능은 작동하지 않습니다. 자주 보는 부대는 별표를 눌러 즐겨찾기하면 목록 상단에 고정됩니다.</p></div>
+        <div><h4 class="font-black mb-1">개인정보 수정</h4><p>이름, 직책, 휴대폰번호, 이메일을 수정할 수 있습니다. 보안을 위해 저장 시 현재 비밀번호를 다시 입력해야 합니다.</p></div>
+    ` : `
+        <div class="p-4 bg-emerald-50 rounded-2xl border border-emerald-100"><h4 class="font-black text-emerald-700 mb-2">사용자 화면 안내</h4><p>출타 등록, 달력 확인, 상세 목록, 이번주/다음주 예정 출타 확인을 할 수 있습니다.</p></div>
+        <div><h4 class="font-black mb-1">출타 등록</h4><p>출타 형태를 선택하고 행선지, 시작일, 종료일을 입력해 출타를 등록합니다. 평일외출과 주말외출은 하루 일정으로, 외박은 1박 2일로 자동 설정됩니다.</p></div>
+        <div><h4 class="font-black mb-1">달력/상세/이번주/다음주</h4><p>달력은 월간 출타 현황을 보여주고, 상세는 오늘 출타와 현재 진행 중인 출타를 보여줍니다. 이번주와 다음주 탭에서는 주간 예정 출타를 빠르게 확인합니다.</p></div>
+        <div><h4 class="font-black mb-1">주 행선지</h4><p>설정에서 출타 종류별 주 행선지를 저장하면, 출타 형태를 선택할 때 해당 행선지가 먼저 자동 입력됩니다. 등록 전 자유롭게 수정할 수 있습니다.</p></div>
+        <div><h4 class="font-black mb-1">개인정보 수정</h4><p>이름과 휴대폰번호를 수정할 수 있습니다. 보안을 위해 저장 시 현재 비밀번호를 다시 입력해야 합니다.</p></div>
+    `;
+    animatePopupFromSource(document.getElementById('help-modal'),sourceElement);
+}
+function closeHelpModal(){closePopupDown(document.getElementById('help-modal'));}
+
+async function handleLogout(){
+    const ok=await showConfirmToast('로그아웃 하시겠습니까?','로그아웃','취소');
+    if(!ok) return;
+    const {error}=await logout();
+    if(error){triggerToast('로그아웃 실패\n'+error.message);return;}
+    location.replace('index.html');
+}
+async function handleDeleteAccount(){
+    const firstOk=await showConfirmToast('탈퇴 하시겠습니까?\n계정이 삭제됩니다.','탈퇴','취소');
+    if(!firstOk) return;
+    const secondOk=await showConfirmToast('정말 탈퇴하시겠습니까?\n이 작업은 되돌릴 수 없습니다.','탈퇴','취소');
+    if(!secondOk) return;
+    const {error}=await sb.rpc('delete_my_account');
+    if(error){triggerToast('회원탈퇴 실패\n'+error.message);return;}
+    await logout();
+    triggerToast('회원탈퇴가 완료되었습니다.');
+    setTimeout(()=>location.replace('index.html'),1200);
+}
+
+function subscribeRealtime(){
+    if(!currentProfile?.unit_id) return;
+    sb.channel('admin-only-realtime')
+      .on('postgres_changes',{event:'*',schema:'public',table:'outing',filter:`unit_id=eq.${currentProfile.unit_id}`},async()=>{await loadData(); renderCurrentTab();})
+      .on('postgres_changes',{event:'*',schema:'public',table:'profiles'},async()=>{await loadData(); renderCurrentTab();})
+      .subscribe();
+}
+function renderCurrentTab(){
+    const active=document.querySelector('section:not(.hidden)')?.id || 'view-rate-calendar';
+    if(active==='view-rate-calendar') renderRateCalendar();
+    else if(active==='view-rate-detail') renderRateDetail();
+    else if(active==='view-members') renderMembers();
+    else if(active==='view-unit') renderUnitTab();
+    else if(active==='view-other-unit'){ if(selectedOtherUnit) switchOtherView(otherView); else searchOtherUnits(); }
+}
+async function initPage(){
+    const authInfo=await requireAdmin();
+    if(!authInfo) return;
+    currentUser=authInfo.user;
+    currentProfile=authInfo.profile;
+    await loadUnit();
+    updateTitle();
+    await loadData();
+    renderRateCalendar();
+    renderFavoriteOtherUnits();
+    initAdminTabSwipe();
+    initOtherViewSwipe();
+    initRateSummaryOutsideClose();
+    subscribeRealtime();
+}
+window.onload=initPage;
+</script>
+<script src="patchnotes.js?v=20261025-2"></script>
+<script src="app-install.js?v=20261025-1"></script>
+
+<script>
+/* 공통 패치노트 확인 상태: 실제 patchnotes-data.js 파일 내용 변경을 감지합니다. */
+(function(){
+  const SEEN_KEY='outing2.patchnotes.seen-content-v1';
+  let currentFingerprint=null;
+  const settingsSelector='button[onclick*="openSettingsModal"]';
+  const notesSelector='button[onclick*="openPatchNotesModal"]';
+  const buttons=()=>[...document.querySelectorAll(settingsSelector+','+notesSelector)];
+  function paint(){
+    const unread=!!currentFingerprint && localStorage.getItem(SEEN_KEY)!==currentFingerprint;
+    buttons().forEach(button=>{
+      button.classList.toggle('patchnote-unread-dot',unread);
+      if(button.matches(notesSelector)) button.setAttribute('aria-label',unread?'패치노트 확인 (새로운 내용 있음)':'패치노트 확인');
+    });
+  }
+  // 같은 GitHub Pages 출처에서 파일의 전체 내용을 읽어 변경을 판별합니다.
+  async function refresh(){
+    try{
+      const url=new URL('patchnotes-data.js',location.href);
+      url.searchParams.set('_patchcheck',String(Date.now()));
+      const response=await fetch(url.toString(),{cache:'no-store'});
+      if(!response.ok)return;
+      const text=await response.text();
+      // 32비트 이중 해시: 저장되는 것은 패치노트 본문이 아니라 변경 감지용 지문뿐입니다.
+      let a=2166136261,b=5381;
+      for(let i=0;i<text.length;i++){
+        const code=text.charCodeAt(i);
+        a=Math.imul(a^code,16777619)>>>0;
+        b=(Math.imul(b,33)^code)>>>0;
+      }
+      currentFingerprint=text.length+':'+a.toString(16)+':'+b.toString(16);
+      paint();
+    }catch(e){console.warn('패치노트 변경 확인 실패:',e);}
+  }
+  document.addEventListener('click',e=>{
+    const target=e.target.closest(notesSelector);
+    if(!target || !currentFingerprint)return;
+    // 사용자가 패치노트를 확인하기 위해 연 시점에 읽음 처리
+    localStorage.setItem(SEEN_KEY,currentFingerprint);
+    paint();
+  },true);
+  window.addEventListener('storage',e=>{if(e.key===SEEN_KEY)paint();});
+  window.addEventListener('pageshow',refresh);
+  window.addEventListener('focus',refresh);
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',refresh);
+  else refresh();
+})();
+</script>
+
+</body>
+</html>
